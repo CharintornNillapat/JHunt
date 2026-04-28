@@ -15,6 +15,10 @@ def get_config() -> dict:
             kw.strip()
             for kw in os.getenv("SEARCH_KEYWORDS", "python developer,data engineer").split(",")
         ],
+        "title_filter": [
+            kw.strip()
+            for kw in os.getenv("TITLE_FILTER", "python,data,engineer,developer,analyst,backend").split(",")
+        ],
         "headless": os.getenv("HEADLESS", "true").lower() == "true",
     }
 
@@ -69,22 +73,25 @@ def main():
     raw_jobs = run_scrapers(config)
     print(f"[Main] Total raw jobs scraped: {len(raw_jobs)}")
 
-    # --- Step 2: Filter ---
+    # --- Step 2: Deduplicate ---
     new_jobs = state.filter_new_jobs(raw_jobs)
     print(f"[Main] New jobs (unseen): {len(new_jobs)}")
 
-    if not new_jobs:
-        print("[Main] No new jobs found. Exiting.")
+    # --- Step 3: Relevance filter ---
+    relevant_jobs = state.filter_relevant_jobs(new_jobs, config["title_filter"])
+    print(f"[Main] Relevant jobs (after title filter): {len(relevant_jobs)}")
+
+    if not relevant_jobs:
+        print("[Main] No relevant new jobs found. Exiting.")
         return
 
-    # --- Step 3: Notify ---
-    sent_count = notify_jobs(new_jobs, notifier)
+    # --- Step 4: Notify ---
+    sent_count = notify_jobs(relevant_jobs, notifier)
 
-    # --- Step 4: Persist state ONLY after successful processing ---
+    # --- Step 5: Persist ---
     state.save()
 
-    # --- Step 5: Summary ---
-    print(f"[Main] Run complete. Sent {sent_count}/{len(new_jobs)} alerts.")
+    print(f"[Main] Run complete. Sent {sent_count}/{len(relevant_jobs)} alerts.")
 
 
 if __name__ == "__main__":

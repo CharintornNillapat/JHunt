@@ -37,7 +37,7 @@ class StateManager:
     def mark_seen(self, job_id: str):
         """Adds a job ID to the seen set (in memory only — call save() to persist)."""
         self._seen.add(job_id)
-
+    
     def filter_new_jobs(self, jobs: list[dict]) -> list[dict]:
         """
         Takes a raw job list, returns only unseen jobs.
@@ -52,6 +52,23 @@ class StateManager:
                 new_jobs.append(job)
         return new_jobs
 
+    def filter_relevant_jobs(self, jobs: list[dict], keywords: list[str]) -> list[dict]:
+        """
+        Filters jobs whose titles don't contain any of the target keywords.
+        Case-insensitive. Runs AFTER filter_new_jobs().
+        """
+        keywords_lower = [kw.lower() for kw in keywords]
+        relevant = []
+
+        for job in jobs:
+            title_lower = job["title"].lower()
+            if any(kw in title_lower for kw in keywords_lower):
+                relevant.append(job)
+            else:
+                print(f"[Filter] Skipped irrelevant job: '{job['title']}'")
+
+        return relevant
+    
     @staticmethod
     def _clean_url(url: str) -> str:
         """
@@ -61,4 +78,3 @@ class StateManager:
         """
         parsed = urlparse(url)
         return urlunparse((parsed.scheme, parsed.netloc, parsed.path, "", "", ""))
-    
