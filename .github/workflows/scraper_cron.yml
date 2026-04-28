@@ -1,9 +1,13 @@
 name: JHunt Scraper
 
 on:
+  
   schedule:
     - cron: "0 2 * * *"   # Runs daily at 02:00 UTC (09:00 Bangkok time)
   workflow_dispatch:        # Allows manual trigger from GitHub UI for testing
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true    # ← opts into Node.js 24 now
 
 jobs:
   scrape:
@@ -34,7 +38,7 @@ jobs:
         with:
           activate-environment: jhunt
           environment-file: environment.yml
-          auto-activate-base: false
+          auto-activate-base: true
 
       # ── 5. Install Chrome ──────────────────────────────────────────
       - name: Install Google Chrome
