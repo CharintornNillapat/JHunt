@@ -1,0 +1,10 @@
+name: jhunt
+channels:
+  - defaults
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+    - selenium
+    - python-dotenv
+    - requests
