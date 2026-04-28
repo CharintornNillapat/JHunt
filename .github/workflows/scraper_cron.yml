@@ -1,0 +1,63 @@
+name: JHunt Scraper
+
+on:
+  schedule:
+    - cron: "0 2 * * *"   # Runs daily at 02:00 UTC (09:00 Bangkok time)
+  workflow_dispatch:        # Allows manual trigger from GitHub UI for testing
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── 1. Checkout code ──────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. Restore seen_jobs.json from cache ──────────────────────
+      - name: Restore job state cache
+        uses: actions/cache@v4
+        with:
+          path: data/seen_jobs.json
+          key: seen-jobs-state
+          restore-keys: seen-jobs-state
+
+      # ── 3. Initialize seen_jobs.json if cache miss ─────────────────
+      - name: Initialize state file if missing
+        run: |
+          mkdir -p data
+          [ -f data/seen_jobs.json ] || echo '{"seen_ids": []}' > data/seen_jobs.json
+
+      # ── 4. Set up Miniconda with our environment.yml ───────────────
+      - name: Set up Miniconda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          activate-environment: jhunt
+          environment-file: environment.yml
+          auto-activate-base: false
+
+      # ── 5. Install Chrome ──────────────────────────────────────────
+      - name: Install Google Chrome
+        run: |
+          wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+          sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list'
+          sudo apt-get update -q
+          sudo apt-get install -y google-chrome-stable
+
+      # ── 6. Run the scraper ─────────────────────────────────────────
+      - name: Run JHunt scraper
+        shell: bash -el {0}    # Required: activates conda env properly
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SEARCH_KEYWORDS: ${{ secrets.SEARCH_KEYWORDS }}
+          HEADLESS: "true"
+        run: python main.py
+
+      # ── 7. Save updated state back to cache ───────────────────────
+      - name: Save job state cache
+        if: always()    # Save even if scraper partially fails
+        uses: actions/cache@v4
+        with:
+          path: data/seen_jobs.json
+          key: seen-jobs-state
