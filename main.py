@@ -17,7 +17,12 @@ def get_config() -> dict:
         ],
         "title_filter": [
             kw.strip()
-            for kw in os.getenv("TITLE_FILTER", "python,data,engineer,developer,analyst,backend").split(",")
+            for kw in os.getenv(
+                "TITLE_FILTER",
+                "python,django,fastapi,data,software,backend,programmer,developer,"
+                "engineer,analyst,devops,cloud,fullstack,full stack,นักพัฒนา,"
+                "โปรแกรมเมอร์,วิศวกร,นักวิเคราะห์"
+            ).split(",")
         ],
         "headless": os.getenv("HEADLESS", "true").lower() == "true",
     }
@@ -55,7 +60,10 @@ def notify_jobs(jobs: list[dict], notifier: TelegramNotifier) -> int:
         success = notifier.send_job_alert(
             title=job["title"],
             company=job["company"],
-            url=job["url"]
+            url=job["url"],
+            location=job.get("location", ""),
+            salary=job.get("salary", ""),
+            work_type=job.get("work_type", ""),
         )
         if success:
             sent += 1
@@ -77,21 +85,29 @@ def main():
     new_jobs = state.filter_new_jobs(raw_jobs)
     print(f"[Main] New jobs (unseen): {len(new_jobs)}")
 
-    # --- Step 3: Relevance filter ---
+    # --- Step 3: Relevance filter (title keywords) ---
     relevant_jobs = state.filter_relevant_jobs(new_jobs, config["title_filter"])
-    print(f"[Main] Relevant jobs (after title filter): {len(relevant_jobs)}")
+    print(f"[Main] After relevance filter: {len(relevant_jobs)}")
 
-    if not relevant_jobs:
-        print("[Main] No relevant new jobs found. Exiting.")
+    # --- Step 4: Seniority filter ---
+    junior_jobs = state.filter_by_seniority(relevant_jobs)
+    print(f"[Main] After seniority filter: {len(junior_jobs)}")
+
+    # --- Step 5: Location filter ---
+    local_jobs = state.filter_by_location(junior_jobs)
+    print(f"[Main] After location filter: {len(local_jobs)}")
+
+    if not local_jobs:
+        print("[Main] No matching jobs found. Exiting.")
         return
 
-    # --- Step 4: Notify ---
-    sent_count = notify_jobs(relevant_jobs, notifier)
+    # --- Step 6: Notify ---
+    sent_count = notify_jobs(local_jobs, notifier)
 
-    # --- Step 5: Persist ---
+    # --- Step 7: Persist ---
     state.save()
 
-    print(f"[Main] Run complete. Sent {sent_count}/{len(relevant_jobs)} alerts.")
+    print(f"[Main] Run complete. Sent {sent_count}/{len(local_jobs)} alerts.")
 
 
 if __name__ == "__main__":

@@ -35,17 +35,28 @@ class TelegramNotifier:
             print(f"[Notifier] Failed to send message: {e}")
             return False
 
-    def send_job_alert(self, title: str, company: str, url: str) -> bool:
+    def send_job_alert(self, title: str, company: str, url: str,
+                       location: str = "", salary: str = "",
+                       work_type: str = "") -> bool:
         """
         Formats a structured job alert and sends it.
         """
-        message = (
-            f"🚨 *New Job Alert*\n\n"
-            f"*{title}*\n"
-            f"🏢 {company}\n"
-            f"🔗 [View Job]({url})"
-        )
-        return self.send(message)
+        lines = [
+            f"🚨 *New Job Alert*\n",
+            f"*{title}*",
+            f"🏢 {company}",
+        ]
+        
+        if location:  
+            lines.append(f"📍 {location}")
+        if salary:    
+            lines.append(f"💰 {salary}")
+        if work_type: 
+            lines.append(f"🕐 {work_type}")
+            
+        lines.append(f"🔗 [View Job]({url})")
+
+        return self.send("\n".join(lines))
 
 
 if __name__ == "__main__":
@@ -53,6 +64,9 @@ if __name__ == "__main__":
     success = notifier.send_job_alert(
         title="Senior Python Engineer",
         company="Acme Corp",
-        url="https://th.jobsdb.com/job/12345"
+        url="https://th.jobsdb.com/job/12345",
+        location="Bangkok",
+        salary="100,000 - 150,000 THB",
+        work_type="Full-time / Hybrid"
     )
     print("Message sent!" if success else "Something went wrong.")

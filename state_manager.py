@@ -5,6 +5,15 @@ from urllib.parse import urlparse, urlunparse
 
 STATE_FILE = "data/seen_jobs.json"
 
+EXCLUDE_SENIORITY = [
+    "senior", "lead", "principal", "manager", "head of", "director"
+]
+
+INCLUDE_LOCATIONS = [
+    "กรุงเทพ", "นนทบุรี", "ปทุมธานี", "อยุธยา", "remote", "work from home",
+    "bangkok", "nonthaburi", "pathum thani", "ayutthaya"
+]
+
 
 class StateManager:
     def __init__(self, state_file: str = STATE_FILE):
@@ -69,6 +78,46 @@ class StateManager:
 
         return relevant
     
+    def filter_by_seniority(self, jobs: list[dict], exclude: list[str] = EXCLUDE_SENIORITY) -> list[dict]:
+        """
+        Drops jobs whose titles contain seniority/experience keywords.
+        """
+        exclude_lower = [kw.lower() for kw in exclude]
+        filtered = []
+
+        for job in jobs:
+            title_lower = job["title"].lower()
+            excluded_by = next((kw for kw in exclude_lower if kw in title_lower), None)
+            if excluded_by:
+                print(f"[Filter] Excluded (seniority: '{excluded_by}'): {job['title']}")
+            else:
+                filtered.append(job)
+
+        return filtered
+
+    def filter_by_location(self, jobs: list[dict], include: list[str] = INCLUDE_LOCATIONS) -> list[dict]:
+        """
+        Keeps only jobs whose location matches the include list.
+        Also keeps jobs with empty location (detail page may have failed).
+        """
+        include_lower = [loc.lower() for loc in include]
+        filtered = []
+
+        for job in jobs:
+            location_lower = job.get("location", "").lower()
+
+            # If location is empty, keep the job (benefit of the doubt)
+            if not location_lower:
+                filtered.append(job)
+                continue
+
+            if any(loc in location_lower for loc in include_lower):
+                filtered.append(job)
+            else:
+                print(f"[Filter] Excluded (location: '{job['location']}'): {job['title']}")
+
+        return filtered
+
     @staticmethod
     def _clean_url(url: str) -> str:
         """
