@@ -52,6 +52,8 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           SEARCH_KEYWORDS: ${{ secrets.SEARCH_KEYWORDS }}
           TITLE_FILTER: ${{ secrets.TITLE_FILTER }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_ENABLED: ${{ secrets.GEMINI_ENABLED }}
         run: python main.py
 
       # ── 6. Save updated state back to cache ───────────────────────
