@@ -2,7 +2,7 @@
 import os
 from dotenv import load_dotenv
 
-from scrapers.jobsdb_scraper import JobsDBScraper
+from scrapers.jobsdb_api import JobsDBAPIScraper
 from notifier import TelegramNotifier
 from state_manager import StateManager
 
@@ -24,7 +24,6 @@ def get_config() -> dict:
                 "โปรแกรมเมอร์,วิศวกร,นักวิเคราะห์"
             ).split(",")
         ],
-        "headless": os.getenv("HEADLESS", "true").lower() == "true",
     }
 
 
@@ -36,15 +35,12 @@ def run_scrapers(config: dict) -> list[dict]:
     all_jobs = []
 
     print("[Main] Running JobsDB scraper...")
-    jobsdb = JobsDBScraper(
-        keywords=config["keywords"],
-        headless=config["headless"]
-    )
+    jobsdb = JobsDBAPIScraper(keywords=config["keywords"])
     all_jobs.extend(jobsdb.scrape())
 
     # Future scrapers slot in cleanly here:
     # print("[Main] Running Indeed scraper...")
-    # indeed = IndeedScraper(keywords=config["keywords"], headless=config["headless"])
+    # indeed = IndeedAPIScraper(keywords=config["keywords"])
     # all_jobs.extend(indeed.scrape())
 
     return all_jobs
