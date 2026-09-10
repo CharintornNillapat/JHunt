@@ -3,6 +3,7 @@ import os
 from dotenv import load_dotenv
 
 from scrapers.jobsdb_api import JobsDBAPIScraper
+from gemini_filter import filter_semantically
 from notifier import TelegramNotifier
 from state_manager import StateManager
 
@@ -10,6 +11,8 @@ load_dotenv()
 
 
 DEFAULT_KEYWORDS = "python developer,data engineer"
+
+DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
 
 DEFAULT_TITLE_FILTER = (
     "python,django,fastapi,data,software,backend,programmer,developer,"
@@ -31,10 +34,23 @@ def _csv_env(name: str, default: str) -> list[str]:
     return [term for term in terms if term] or [t.strip() for t in default.split(",")]
 
 
+def _bool_env(name: str, default: bool = False) -> bool:
+    """Reads a boolean env var. Unset or empty falls back to `default`."""
+    raw = (os.getenv(name) or "").strip().lower()
+    if not raw:
+        return default
+    return raw in ("1", "true", "yes", "on")
+
+
 def get_config() -> dict:
     return {
         "keywords": _csv_env("SEARCH_KEYWORDS", DEFAULT_KEYWORDS),
         "title_filter": _csv_env("TITLE_FILTER", DEFAULT_TITLE_FILTER),
+        # Optional semantic pass. Off unless explicitly enabled, and fail-open
+        # even then — see gemini_filter.filter_semantically.
+        "gemini_enabled": _bool_env("GEMINI_ENABLED", False),
+        "gemini_api_key": (os.getenv("GEMINI_API_KEY") or "").strip(),
+        "gemini_model": (os.getenv("GEMINI_MODEL") or "").strip() or DEFAULT_GEMINI_MODEL,
     }
 
 
@@ -118,12 +134,20 @@ def main():
             print("[Main] No matching jobs found. Exiting.")
             return
 
-        # --- Step 6: Notify ---
-        sent_count = notify_jobs(local_jobs, notifier, state)
+        # --- Step 6: Semantic filter (optional; no-op unless GEMINI_ENABLED) ---
+        final_jobs = filter_semantically(local_jobs, config)
+        print(f"[Main] After semantic filter: {len(final_jobs)}")
 
-        print(f"[Main] Run complete. Sent {sent_count}/{len(local_jobs)} alerts.")
+        if not final_jobs:
+            print("[Main] No matching jobs found. Exiting.")
+            return
+
+        # --- Step 7: Notify ---
+        sent_count = notify_jobs(final_jobs, notifier, state)
+
+        print(f"[Main] Run complete. Sent {sent_count}/{len(final_jobs)} alerts.")
     finally:
-        # --- Step 7: Persist ---
+        # --- Step 8: Persist ---
         state.save()
 
 
