@@ -12,12 +12,13 @@ about a job costs the user one alert; a filter that crashes costs them all of
 them, so this one never raises.
 """
 import json
+import os
 import time
 
 import requests
 
 API_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-DEFAULT_MODEL = "gemini-2.0-flash"
+DEFAULT_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
 
 # Free tier is roughly 10 requests/minute. One request per 40 jobs with a 7s
 # gap keeps a normal run to a couple of requests, far inside the quota.

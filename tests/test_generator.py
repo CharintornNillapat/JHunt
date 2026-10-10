@@ -106,7 +106,7 @@ class TestIdeationEngine(unittest.TestCase):
         self.mock_client = MagicMock()
         self.engine = IdeationEngine(
             api_key="mock-api-key",
-            model="gemini-2.0-flash",
+            model="gemini-3.8-flash",
             rate_limit_delay=0.0,
             client=self.mock_client,
         )

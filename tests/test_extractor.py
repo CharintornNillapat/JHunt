@@ -100,7 +100,7 @@ class TestGeminiExtractor(unittest.TestCase):
         self.mock_client = MagicMock()
         self.extractor = GeminiExtractor(
             api_key="fake-test-key",
-            model="gemini-2.0-flash",
+            model="gemini-3.8-flash",
             rate_limit_delay=0.0,  # Fast tests
             client=self.mock_client,
         )
@@ -240,9 +240,17 @@ class TestGeminiExtractor(unittest.TestCase):
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
-    def test_model_override_avoids_gemini_2_5_flash(self):
-        extractor = GeminiExtractor(api_key="fake_key", model_name="gemini-2.5-flash")
-        self.assertEqual(extractor.model_name, "gemini-2.0-flash")
+    def test_model_default_and_custom_override(self):
+        with patch.dict("os.environ", {}, clear=True):
+            extractor_default = GeminiExtractor(api_key="fake_key")
+            self.assertEqual(extractor_default.model_name, "gemini-3.8-flash")
+
+        with patch.dict("os.environ", {"GEMINI_MODEL": "gemini-env-model"}):
+            extractor_env = GeminiExtractor(api_key="fake_key")
+            self.assertEqual(extractor_env.model_name, "gemini-env-model")
+
+        extractor_custom = GeminiExtractor(api_key="fake_key", model_name="gemini-custom-model")
+        self.assertEqual(extractor_custom.model_name, "gemini-custom-model")
 
     def test_is_tech_job_heuristic(self):
         # Definite non-tech

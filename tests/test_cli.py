@@ -163,7 +163,7 @@ class TestPipelineOrchestration(unittest.TestCase):
             "title_filter": ["python", "developer"],
             "gemini_enabled": False,
             "gemini_api_key": None,  # Offline fallback
-            "gemini_model": "gemini-2.0-flash",
+            "gemini_model": "gemini-3.8-flash",
             "export_dir": str(self.export_dir),
         }
 

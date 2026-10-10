@@ -218,7 +218,7 @@ TITLE_FILTER=python,django,fastapi,data,software,backend,programmer,developer,en
 # ── Gemini API (Free Tier) ─────────────────────────────────────────────────
 GEMINI_ENABLED=true
 GEMINI_API_KEY=AIzaSy...YourKeyFromGoogleAIStudio
-GEMINI_MODEL=gemini-2.0-flash
+GEMINI_MODEL=gemini-3.8-flash
 
 # ── Blueprint Export Directory Override (Optional) ─────────────────────────
 # Defaults to: C:\Users\MRmar\Desktop\Mid years projects\Ideas\Real-world-tech-industrial-insight-for-building-project

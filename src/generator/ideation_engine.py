@@ -21,7 +21,7 @@ from src.extractor.llm_extractor import is_daily_quota_exhausted
 logger = logging.getLogger(__name__)
 
 _UNSET = object()
-DEFAULT_MODEL = "gemini-2.0-flash"
+DEFAULT_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
 FALLBACK_MODEL = "gemini-1.5-flash"
 DEFAULT_RATE_LIMIT_DELAY = 4.0
 MAX_RETRIES = 4
@@ -51,19 +51,17 @@ class IdeationEngine:
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
+        api_key: Any = _UNSET,
         model: Optional[str] = None,
         rate_limit_delay: float = DEFAULT_RATE_LIMIT_DELAY,
         client: Any = _UNSET,
     ):
-        self.api_key = (api_key or os.getenv("GEMINI_API_KEY") or "").strip()
-        model_name = (model or os.getenv("GEMINI_MODEL") or DEFAULT_MODEL).strip()
-        if "2.5-flash" in model_name:
-            logger.info(
-                f"[IdeationEngine] Overriding '{model_name}' to '{DEFAULT_MODEL}' "
-                "to prevent hitting free-tier 20 RPD cap."
-            )
-            model_name = DEFAULT_MODEL
+        if api_key is _UNSET:
+            self.api_key = (os.getenv("GEMINI_API_KEY") or "").strip()
+        else:
+            self.api_key = (api_key or "").strip()
+
+        model_name = (model or os.environ.get("GEMINI_MODEL", DEFAULT_MODEL)).strip()
         self.model = model_name
         self.rate_limit_delay = rate_limit_delay
         self._last_call_time: float = 0.0

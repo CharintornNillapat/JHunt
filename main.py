@@ -42,7 +42,7 @@ logger = logging.getLogger("JHunt")
 logging.basicConfig(level=logging.INFO, format="[%(asctime)s] [%(levelname)s] %(message)s")
 
 DEFAULT_KEYWORDS = "python developer,data engineer"
-DEFAULT_GEMINI_MODEL = "gemini-2.0-flash"
+DEFAULT_GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
 DEFAULT_EXTRACTION_LIMIT = 10
 DEFAULT_TITLE_FILTER = (
     "python,django,fastapi,data,software,backend,programmer,developer,"
@@ -68,8 +68,6 @@ def _bool_env(name: str, default: bool = False) -> bool:
 
 def get_config() -> dict:
     gemini_model = (os.getenv("GEMINI_MODEL") or "").strip() or DEFAULT_GEMINI_MODEL
-    if "2.5-flash" in gemini_model:
-        gemini_model = DEFAULT_GEMINI_MODEL
 
     return {
         "keywords": _csv_env("SEARCH_KEYWORDS", DEFAULT_KEYWORDS),
