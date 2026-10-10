@@ -2,7 +2,7 @@ name: JHunt Scraper
 
 on:
   schedule:
-    - cron: "0 2 * * *"   # Runs daily at 02:00 UTC (09:00 Bangkok time)
+    - cron: "0 1 * * *"   # Runs daily at 01:00 UTC (08:00 AM Bangkok / Thailand time)
   workflow_dispatch:        # Allows manual trigger from GitHub UI for testing
 
 env:
@@ -43,18 +43,20 @@ jobs:
           environment-file: environment.yml
           auto-activate-base: true
 
-      # ── 5. Run the scraper ─────────────────────────────────────────
-      # No browser needed: the scraper talks to the JobsDB JSON API directly.
-      - name: Run JHunt scraper
+      # ── 5. Run the scraper & intelligence pipeline ────────────────
+      # Runs complete end-to-end pipeline: scrape -> store -> extract -> alert -> analyze -> export
+      - name: Run JHunt pipeline
         shell: bash -el {0}    # Required: activates conda env properly
         env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           SEARCH_KEYWORDS: ${{ secrets.SEARCH_KEYWORDS }}
           TITLE_FILTER: ${{ secrets.TITLE_FILTER }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_ENABLED: ${{ secrets.GEMINI_ENABLED }}
-        run: python main.py
+        run: python main.py run --all
 
       # ── 6. Save updated state back to cache ───────────────────────
       - name: Save job state cache

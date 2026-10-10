@@ -35,13 +35,14 @@ from src.generator.ideation_engine import IdeationEngine
 from src.generator.markdown_exporter import MarkdownExporter
 from src.notifier.telegram_notifier import TelegramNotifier
 from src.storage.db import DatabaseManager
+from src.storage.turso_client import TursoClient
 from state_manager import StateManager
 
 logger = logging.getLogger("JHunt")
 logging.basicConfig(level=logging.INFO, format="[%(asctime)s] [%(levelname)s] %(message)s")
 
 DEFAULT_KEYWORDS = "python developer,data engineer"
-DEFAULT_GEMINI_MODEL = "gemini-2.0-flash"
+DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
 DEFAULT_TITLE_FILTER = (
     "python,django,fastapi,data,software,backend,programmer,developer,"
     "engineer,analyst,devops,cloud,fullstack,full stack,นักพัฒนา,"
@@ -167,6 +168,7 @@ def run_analyze_pipeline(
     db: Optional[DatabaseManager] = None,
     target_role: Optional[str] = None,
     limit: Optional[int] = None,
+    turso: Optional[TursoClient] = None,
 ) -> Optional[Path]:
     """
     Offline path: Analyzes stored market data in SQLite and exports
@@ -174,6 +176,8 @@ def run_analyze_pipeline(
     """
     if db is None:
         db = DatabaseManager()
+    if turso is None:
+        turso = TursoClient()
 
     analyzer = ClusterAnalyzer(db=db)
     report = analyzer.generate_market_report()
@@ -205,7 +209,7 @@ def run_analyze_pipeline(
         api_key=config.get("gemini_api_key"),
         model=config.get("gemini_model"),
     )
-    exporter = MarkdownExporter(export_dir=config.get("export_dir"), db=db)
+    exporter = MarkdownExporter(export_dir=config.get("export_dir"), db=db, turso=turso)
 
     spec = engine.generate_project_spec(target_role=role, tech_stack=dominant_stack)
     if not spec:
@@ -224,21 +228,24 @@ def run_full_pipeline(
     notifier: Optional[TelegramNotifier] = None,
     limit: Optional[int] = None,
     target_role: Optional[str] = None,
+    turso: Optional[TursoClient] = None,
 ) -> Dict[str, Any]:
     """
     Full end-to-end pipeline:
     1. Scrape jobs.
-    2. Store all scraped jobs into SQLite `jobs` table (idempotent).
+    2. Store all scraped jobs into SQLite `jobs` table (idempotent) and sync to Turso cloud.
     3. Filter and alert via Telegram.
-    4. Extract structured skills via Gemini.
+    4. Extract structured skills via Gemini and sync to Turso cloud.
     5. Aggregate tech clusters.
-    6. Generate and export portfolio project blueprints.
+    6. Generate and export portfolio project blueprints and sync to Turso cloud.
     7. Send Market Intelligence Brief via Telegram.
     """
     if db is None:
         db = DatabaseManager()
     if state is None:
         state = StateManager()
+    if turso is None:
+        turso = TursoClient()
 
     if notifier is None:
         try:
@@ -261,10 +268,14 @@ def run_full_pipeline(
         results["scraped"] = len(raw_jobs)
         print(f"[Main] Total raw jobs scraped: {len(raw_jobs)}")
 
-        # Step 2: Store in SQLite (All jobs for market intelligence)
+        # Step 2: Store in SQLite (All jobs for market intelligence) and Turso cloud
         stored_count = sum(1 for j in raw_jobs if db.save_job(j))
         results["new_stored"] = stored_count
         print(f"[Main] Newly stored in database: {stored_count} jobs.")
+
+        if turso.is_available:
+            turso_synced = turso.sync_jobs(raw_jobs)
+            print(f"[Main] Synchronized to Turso cloud: {turso_synced} jobs.")
 
         # Step 3: Filter for immediate alert
         new_jobs = state.filter_new_jobs(raw_jobs)
@@ -281,7 +292,7 @@ def run_full_pipeline(
             api_key=config.get("gemini_api_key"),
             model=config.get("gemini_model"),
         )
-        extracted_count = process_unprocessed_jobs(db=db, extractor=extractor, limit=limit)
+        extracted_count = process_unprocessed_jobs(db=db, extractor=extractor, limit=limit, turso=turso)
         results["extracted"] = extracted_count
 
         # Step 5: Market Intelligence & Ideation
@@ -295,7 +306,7 @@ def run_full_pipeline(
             api_key=config.get("gemini_api_key"),
             model=config.get("gemini_model"),
         )
-        exporter = MarkdownExporter(export_dir=config.get("export_dir"), db=db)
+        exporter = MarkdownExporter(export_dir=config.get("export_dir"), db=db, turso=turso)
 
         spec = engine.generate_project_spec(target_role=role, tech_stack=dominant_stack)
         if spec:

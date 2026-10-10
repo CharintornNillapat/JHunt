@@ -19,7 +19,8 @@ from src.extractor.schemas import ProjectIdeaSpec
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = "gemini-2.0-flash"
+_UNSET = object()
+DEFAULT_MODEL = "gemini-2.5-flash"
 DEFAULT_RATE_LIMIT_DELAY = 4.0
 MAX_RETRIES = 4
 INITIAL_BACKOFF = 2.0
@@ -51,14 +52,14 @@ class IdeationEngine:
         api_key: Optional[str] = None,
         model: Optional[str] = None,
         rate_limit_delay: float = DEFAULT_RATE_LIMIT_DELAY,
-        client: Optional[genai.Client] = None,
+        client: Any = _UNSET,
     ):
         self.api_key = (api_key or os.getenv("GEMINI_API_KEY") or "").strip()
         self.model = (model or os.getenv("GEMINI_MODEL") or DEFAULT_MODEL).strip()
         self.rate_limit_delay = rate_limit_delay
         self._last_call_time: float = 0.0
 
-        if client is not None:
+        if client is not _UNSET:
             self.client = client
         elif self.api_key:
             self.client = genai.Client(api_key=self.api_key)

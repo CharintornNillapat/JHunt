@@ -21,7 +21,8 @@ from src.storage.db import DatabaseManager
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = "gemini-2.0-flash"
+_UNSET = object()
+DEFAULT_MODEL = "gemini-2.5-flash"
 DEFAULT_RATE_LIMIT_DELAY = 4.0  # Safe for 15 RPM free tier
 MAX_RETRIES = 4
 INITIAL_BACKOFF = 2.0
@@ -61,14 +62,14 @@ class GeminiExtractor:
         api_key: Optional[str] = None,
         model: Optional[str] = None,
         rate_limit_delay: float = DEFAULT_RATE_LIMIT_DELAY,
-        client: Optional[genai.Client] = None,
+        client: Any = _UNSET,
     ):
         self.api_key = (api_key or os.getenv("GEMINI_API_KEY") or "").strip()
         self.model = (model or os.getenv("GEMINI_MODEL") or DEFAULT_MODEL).strip()
         self.rate_limit_delay = rate_limit_delay
         self._last_call_time: float = 0.0
 
-        if client is not None:
+        if client is not _UNSET:
             self.client = client
         elif self.api_key:
             self.client = genai.Client(api_key=self.api_key)
@@ -166,10 +167,12 @@ def process_unprocessed_jobs(
     db: DatabaseManager,
     extractor: Optional[GeminiExtractor] = None,
     limit: Optional[int] = None,
+    turso: Optional[Any] = None,
 ) -> int:
     """
     Fetches un-extracted jobs from database, sanitizes text, invokes Gemini,
     and stores ExtractedJob records into skills_extracted table.
+    Synchronizes extracted skills to Turso cloud database if available.
     Returns the count of successfully extracted jobs.
     """
     if extractor is None:
@@ -198,6 +201,11 @@ def process_unprocessed_jobs(
 
         if extracted:
             db.save_extracted_skills(job_id, extracted)
+            if turso:
+                turso.sync_extracted_skills({
+                    "job_id": job_id,
+                    "extracted": extracted,
+                })
             success_count += 1
             logger.info(f"[BatchExtractor] Successfully saved skills for job {job_id} ({len(extracted.all_tech_stack)} tech tags).")
         else:

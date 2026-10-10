@@ -45,6 +45,7 @@ class MarkdownExporter:
         self,
         export_dir: Optional[Union[str, Path]] = None,
         db: Optional[DatabaseManager] = None,
+        turso: Optional[Any] = None,
     ):
         env_export_dir = os.getenv("EXPORT_DIR")
         if export_dir is not None:
@@ -55,6 +56,7 @@ class MarkdownExporter:
             self.export_dir = DEFAULT_EXPORT_DIR
 
         self.db = db or DatabaseManager()
+        self.turso = turso
         self._jinja_env = Environment(
             loader=FileSystemLoader(str(TEMPLATE_DIR)),
             autoescape=False,
@@ -116,5 +118,16 @@ class MarkdownExporter:
             file_path=str(destination_path),
             domain_industry=spec.domain_industry,
         )
+
+        # Sync to Turso cloud database if available
+        if self.turso:
+            self.turso.sync_blueprint(
+                title=spec.title,
+                role=target_role,
+                difficulty=spec.difficulty,
+                domain=spec.domain_industry,
+                tech_stack=spec.target_tech_stack,
+                spec_markdown=markdown_content,
+            )
 
         return destination_path

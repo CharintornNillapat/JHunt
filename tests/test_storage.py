@@ -7,9 +7,12 @@ import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 from src.extractor.schemas import ExtractedJob, ProjectIdeaSpec
+from src.generator.markdown_exporter import MarkdownExporter
 from src.storage.db import DatabaseManager
+from src.storage.turso_client import TursoClient
 
 
 class TestDataContracts(unittest.TestCase):
@@ -194,5 +197,193 @@ class TestDatabaseManager(unittest.TestCase):
         self.assertEqual(projects[0]["title"], "E-Commerce Payment Orchestrator")
 
 
+class TestTursoClient(unittest.TestCase):
+    def test_missing_credentials_graceful_fallback(self):
+        with patch.dict("os.environ", {}, clear=True):
+            turso = TursoClient()
+            self.assertFalse(turso.is_available)
+            self.assertIsNone(turso.client)
+
+            # Operations return safe defaults without error
+            self.assertEqual(turso.sync_jobs([{"id": "j1", "title": "Dev"}]), 0)
+            self.assertEqual(turso.sync_extracted_skills({"job_id": "j1"}), 0)
+            self.assertFalse(turso.sync_blueprint(
+                title="Test Blueprint",
+                role="Backend Engineer",
+                difficulty="Intermediate",
+                domain="FinTech",
+                tech_stack=["Go", "Redis"],
+                spec_markdown="# Test",
+            ))
+
+    def test_table_initialization_with_mock_client(self):
+        mock_client = MagicMock()
+        turso = TursoClient(client=mock_client)
+        self.assertTrue(turso.is_available)
+
+        # Ensure table creation queries were executed
+        executed_sqls = [call[0][0] for call in mock_client.execute.call_args_list]
+        self.assertTrue(any("CREATE TABLE IF NOT EXISTS jobs" in sql for sql in executed_sqls))
+        self.assertTrue(any("CREATE TABLE IF NOT EXISTS skills_extracted" in sql for sql in executed_sqls))
+        self.assertTrue(any("CREATE TABLE IF NOT EXISTS generated_projects" in sql for sql in executed_sqls))
+
+    def test_sync_jobs_with_mock(self):
+        mock_client = MagicMock()
+        turso = TursoClient(client=mock_client)
+        mock_client.execute.reset_mock()
+
+        jobs = [
+            {
+                "id": "job_cloud_01",
+                "title": "Cloud Engineer",
+                "company": "True Digital",
+                "url": "https://example.com/cloud",
+                "location": "Bangkok",
+                "salary": "80,000 THB",
+                "work_type": "Full-time",
+                "teaser": "AWS and Terraform engineer",
+                "bullet_points": ["AWS", "Terraform"],
+                "listing_date": "2026-10-10",
+            },
+            {
+                "id": "job_cloud_02",
+                "title": "Backend Go Developer",
+                "company": "Bitkub",
+                "url": "https://example.com/go",
+            },
+        ]
+
+        synced = turso.sync_jobs(jobs)
+        self.assertEqual(synced, 2)
+        self.assertEqual(mock_client.execute.call_count, 2)
+
+        # Inspect first executed call
+        first_call = mock_client.execute.call_args_list[0]
+        sql, params = first_call[0][0], first_call[0][1]
+        self.assertIn("INSERT OR IGNORE INTO jobs", sql)
+        self.assertEqual(params[0], "job_cloud_01")
+        self.assertEqual(params[1], "Cloud Engineer")
+        self.assertEqual(params[2], "True Digital")
+
+    def test_sync_extracted_skills_with_mock(self):
+        mock_client = MagicMock()
+        turso = TursoClient(client=mock_client)
+        mock_client.execute.reset_mock()
+
+        # 1. Sync via dict with ExtractedJob
+        extracted = ExtractedJob(
+            job_title="Backend Go Developer",
+            company="Bitkub",
+            experience_level="Mid",
+            must_have_skills=["Go", "gRPC"],
+            databases=["PostgreSQL", "Redis"],
+            cloud_infra=["Docker", "Kubernetes"],
+            tools=["Git", "Kafka"],
+        )
+
+        synced_single = turso.sync_extracted_skills({
+            "job_id": "job_cloud_02",
+            "extracted": extracted,
+        })
+        self.assertEqual(synced_single, 1)
+
+        call_args = mock_client.execute.call_args[0]
+        sql, params = call_args[0], call_args[1]
+        self.assertIn("INSERT INTO skills_extracted", sql)
+        self.assertEqual(params[0], "job_cloud_02")
+        self.assertEqual(params[1], "Mid")
+        self.assertIn("Go", params[2])
+        self.assertIn("PostgreSQL", params[5])
+
+        # 2. Sync via list of raw skill dicts
+        mock_client.execute.reset_mock()
+        raw_skills = [
+            {
+                "job_id": "job_cloud_03",
+                "experience_level": "Senior",
+                "must_have_skills": ["Python", "FastAPI"],
+                "nice_to_have_skills": ["Redis"],
+                "frameworks": ["FastAPI"],
+                "databases": ["PostgreSQL"],
+                "cloud_infra": ["AWS"],
+                "tools": ["Git"],
+            }
+        ]
+        synced_batch = turso.sync_extracted_skills(raw_skills)
+        self.assertEqual(synced_batch, 1)
+        self.assertEqual(mock_client.execute.call_count, 1)
+
+    def test_sync_blueprint_with_mock(self):
+        mock_client = MagicMock()
+        turso = TursoClient(client=mock_client)
+        mock_client.execute.reset_mock()
+
+        success = turso.sync_blueprint(
+            title="Real-Time Payment Gateway & Ledger",
+            role="Backend Engineer",
+            difficulty="Advanced",
+            domain="FinTech & Digital Banking",
+            tech_stack=["Go", "PostgreSQL", "Kafka", "Redis"],
+            spec_markdown="# System Blueprint\nArchitecture details...",
+        )
+        self.assertTrue(success)
+        mock_client.execute.assert_called_once()
+
+        sql, params = mock_client.execute.call_args[0]
+        self.assertIn("INSERT INTO generated_projects", sql)
+        self.assertEqual(params[0], "Real-Time Payment Gateway & Ledger")
+        self.assertEqual(params[1], "Backend Engineer")
+        self.assertEqual(params[2], "Advanced")
+        self.assertEqual(params[3], "FinTech & Digital Banking")
+        self.assertIn("Go", params[4])
+        self.assertIn("System Blueprint", params[5])
+
+
+class TestTursoExporterIntegration(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.mkdtemp(prefix="jhunt_turso_export_")
+        self.export_dir = Path(self.temp_dir) / "ideas"
+        self.db_path = Path(self.temp_dir) / "test.db"
+        self.db = DatabaseManager(db_path=self.db_path)
+
+    def tearDown(self):
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def test_exporter_triggers_turso_sync_blueprint(self):
+        mock_turso = MagicMock()
+        mock_turso.sync_blueprint.return_value = True
+
+        exporter = MarkdownExporter(
+            export_dir=self.export_dir,
+            db=self.db,
+            turso=mock_turso,
+        )
+
+        spec = ProjectIdeaSpec(
+            title="Flash Sale Inventory Locking Engine",
+            domain_industry="E-Commerce",
+            target_tech_stack=["Python", "FastAPI", "Redis", "PostgreSQL"],
+            architecture_overview="Distributed locking architecture with Redis Redlock and outbox pattern",
+            core_features=["Inventory allocation", "Order queue", "Distributed lock"],
+            database_schema="PostgreSQL schemas for items and orders",
+            engineering_challenges=["High concurrency race conditions", "Cache stampede"],
+            difficulty="Intermediate",
+        )
+
+        file_path = exporter.export(spec=spec, target_role="Backend Engineer")
+        self.assertTrue(file_path.exists())
+
+        # Verify turso.sync_blueprint was called with correct parameters
+        mock_turso.sync_blueprint.assert_called_once()
+        call_kwargs = mock_turso.sync_blueprint.call_args[1]
+        self.assertEqual(call_kwargs["title"], "Flash Sale Inventory Locking Engine")
+        self.assertEqual(call_kwargs["role"], "Backend Engineer")
+        self.assertEqual(call_kwargs["difficulty"], "Intermediate")
+        self.assertEqual(call_kwargs["domain"], "E-Commerce")
+        self.assertIn("FastAPI", call_kwargs["tech_stack"])
+        self.assertIn("Flash Sale Inventory Locking Engine", call_kwargs["spec_markdown"])
+
+
 if __name__ == "__main__":
     unittest.main()
+
