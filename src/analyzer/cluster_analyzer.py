@@ -21,6 +21,19 @@ from src.extractor.schemas import ExtractedJob
 from src.storage.db import DatabaseManager
 
 
+def compute_pairwise_cooccurrences(
+    jobs: List[ExtractedJob],
+) -> Counter[Tuple[str, str]]:
+    """Computes pairwise co-occurrences of tech stack components across jobs."""
+    counter: Counter[Tuple[str, str]] = Counter()
+    for job in jobs:
+        all_tech = sorted(set(t.strip() for t in job.all_tech_stack if t.strip()))
+        if len(all_tech) >= 2:
+            for pair in combinations(all_tech, 2):
+                counter[pair] += 1
+    return counter
+
+
 class ClusterAnalyzer:
     """
     Analyzes historical and extracted job records in SQLite database to uncover
@@ -68,8 +81,8 @@ class ClusterAnalyzer:
         tools_counter: Counter[str] = Counter()
         experience_counter: Counter[str] = Counter()
 
-        # Co-occurrence tracking across all jobs
-        cooccurrence_counter: Counter[Tuple[str, str]] = Counter()
+        # Co-occurrence tracking across all jobs using unified helper
+        cooccurrence_counter = compute_pairwise_cooccurrences(all_jobs)
 
         # Grouping jobs by role
         role_jobs: Dict[StandardRole, List[ExtractedJob]] = defaultdict(list)
@@ -102,12 +115,6 @@ class ClusterAnalyzer:
                 if norm:
                     tools_counter[norm] += 1
 
-            # Deduplicated tech stack for pairwise co-occurrence
-            all_tech = sorted(set(self._normalize_tag(t) for t in job.all_tech_stack if t.strip()))
-            if len(all_tech) >= 2:
-                for pair in combinations(all_tech, 2):
-                    cooccurrence_counter[pair] += 1
-
             # Classify role
             role = classify_role(job.job_title, job)
             role_jobs[role].append(job)
@@ -117,6 +124,7 @@ class ClusterAnalyzer:
             CooccurrenceItem(tech_a=pair[0], tech_b=pair[1], count=count)
             for pair, count in cooccurrence_counter.most_common(limit_top)
         ]
+
 
         # Analyze role clusters
         role_clusters: Dict[str, RoleCluster] = {}

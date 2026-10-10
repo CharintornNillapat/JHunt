@@ -9,26 +9,12 @@ import {
   Sparkles,
   Terminal,
 } from "lucide-react";
-import { getAllProjects, parseTechStack } from "@/lib/turso";
+import { formatDate, getAllProjects, parseTechStack } from "@/lib/turso";
 
 export const revalidate = 60;
 
-function formatDate(dateStr: string): string {
-  if (!dateStr) return "Recent";
-  try {
-    const d = new Date(dateStr);
-    if (isNaN(d.getTime())) return dateStr;
-    return d.toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
-  } catch {
-    return dateStr;
-  }
-}
-
 export default async function HomePage() {
+
   const projects = await getAllProjects();
 
   return (

@@ -71,7 +71,24 @@ export function parseTechStack(raw: string): string[] {
     .filter(Boolean);
 }
 
+export function formatDate(dateStr: string): string {
+
+  if (!dateStr) return "Recent";
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
+    return d.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  } catch {
+    return dateStr;
+  }
+}
+
 export async function getAllProjects(): Promise<GeneratedProject[]> {
+
   if (!url && !clientInstance) {
     return [];
   }

@@ -15,17 +15,18 @@ from typing import Any, Dict, List, Optional
 from google import genai
 from google.genai import types
 
+from src.extractor.gemini_client import (
+    BaseGeminiService,
+    is_daily_quota_exhausted,
+    is_transient_error,
+    calculate_backoff_sleep,
+    FALLBACK_MODEL,
+    MAX_RETRIES,
+    INITIAL_BACKOFF,
+)
 from src.extractor.schemas import ProjectIdeaSpec
-from src.extractor.llm_extractor import is_daily_quota_exhausted
 
 logger = logging.getLogger(__name__)
-
-_UNSET = object()
-DEFAULT_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
-FALLBACK_MODEL = "gemini-2.5-flash"
-DEFAULT_RATE_LIMIT_DELAY = 4.0
-MAX_RETRIES = 4
-INITIAL_BACKOFF = 2.0
 
 IDEATION_SYSTEM_INSTRUCTION = """You are a Principal Software Systems Architect and Staff Engineering Hiring Manager in Thailand.
 Your mission is to design an enterprise-grade, production-scale portfolio project blueprint specifically tailored for engineering candidates interviewing at leading Thailand tech companies (e.g., Agoda, LINE MAN Wongnai, SCB 10X, Bitkub, True Digital, Central Group).
@@ -43,43 +44,12 @@ Core Directives:
 """
 
 
-class IdeationEngine:
+class IdeationEngine(BaseGeminiService):
     """
     Generates structured enterprise portfolio project blueprints matching
     market co-occurrence clusters using Gemini API.
     """
 
-    def __init__(
-        self,
-        api_key: Any = _UNSET,
-        model: Optional[str] = None,
-        rate_limit_delay: float = DEFAULT_RATE_LIMIT_DELAY,
-        client: Any = _UNSET,
-    ):
-        if api_key is _UNSET:
-            self.api_key = (os.getenv("GEMINI_API_KEY") or "").strip()
-        else:
-            self.api_key = (api_key or "").strip()
-
-        model_name = (model or os.environ.get("GEMINI_MODEL", DEFAULT_MODEL)).strip()
-        self.model = model_name
-        self.rate_limit_delay = rate_limit_delay
-        self._last_call_time: float = 0.0
-
-        if client is not _UNSET:
-            self.client = client
-        elif self.api_key:
-            self.client = genai.Client(api_key=self.api_key)
-        else:
-            self.client = None
-
-    def _throttle(self) -> None:
-        """Throttles calls to stay well within free tier quotas."""
-        if self._last_call_time > 0:
-            elapsed = time.monotonic() - self._last_call_time
-            sleep_needed = self.rate_limit_delay - elapsed
-            if sleep_needed > 0:
-                time.sleep(sleep_needed)
 
     def generate_project_spec(
         self,

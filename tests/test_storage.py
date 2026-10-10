@@ -78,11 +78,14 @@ class TestDatabaseManager(unittest.TestCase):
         # First insert -> True
         inserted = self.db.save_job(job_data)
         self.assertTrue(inserted)
-        self.assertTrue(self.db.job_exists("job_001"))
+        unprocessed = self.db.get_unprocessed_jobs()
+        self.assertEqual(len(unprocessed), 1)
+        self.assertEqual(unprocessed[0]["id"], "job_001")
 
         # Duplicate insert -> False
         second_insert = self.db.save_job(job_data)
         self.assertFalse(second_insert)
+
 
     def test_get_unprocessed_jobs(self):
         job1 = {

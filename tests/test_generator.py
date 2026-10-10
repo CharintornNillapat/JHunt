@@ -51,7 +51,7 @@ class TestMarkdownExporterAndTemplate(unittest.TestCase):
         self.assertEqual(_slugify("AI / ML Engineer"), "ai-ml-engineer")
         self.assertEqual(_slugify('Dangerous: / Path *? "Name"'), "dangerous-path-name")
 
-    def test_render_spec_jinja2_structure(self):
+    def test_render_spec_structure(self):
         rendered = self.exporter.render_spec(
             spec=self.sample_spec,
             target_role="Backend Engineer",

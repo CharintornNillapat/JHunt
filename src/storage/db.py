@@ -113,13 +113,6 @@ class DatabaseManager:
 
     # ── Job Operations ────────────────────────────────────────────────────────
 
-    def job_exists(self, job_id: str) -> bool:
-        """Returns True if the job ID already exists in the database."""
-        with self._connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT 1 FROM jobs WHERE id = ? LIMIT 1;", (str(job_id),))
-            return cursor.fetchone() is not None
-
     def save_job(self, job: Dict[str, Any]) -> bool:
         """
         Persists a scraped job into the jobs table if not already present.
@@ -155,16 +148,6 @@ class DatabaseManager:
                 ),
             )
             return cursor.rowcount > 0
-
-    def get_job(self, job_id: str) -> Optional[Dict[str, Any]]:
-        """Retrieves a single job by its ID, unpacking raw_content if present."""
-        with self._connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT * FROM jobs WHERE id = ? LIMIT 1;", (str(job_id),))
-            row = cursor.fetchone()
-            if not row:
-                return None
-            return self._row_to_job(row)
 
     def get_unprocessed_jobs(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
         """
@@ -296,27 +279,19 @@ class DatabaseManager:
     def get_top_skill_cooccurrences(self, min_count: int = 1) -> List[Dict[str, Any]]:
         """
         Computes pairwise co-occurrences of tech stack components across all
-        extracted jobs in the database.
-        Returns list of {'pair': (tech_a, tech_b), 'count': int} sorted descending.
+        extracted jobs in the database using shared helper.
+        Returns list of {'tech_a': str, 'tech_b': str, 'count': int} sorted descending.
         """
+        from src.analyzer.cluster_analyzer import compute_pairwise_cooccurrences
+
         all_skills = self.get_all_extracted_skills()
-        pair_counts: Counter[Tuple[str, str]] = Counter()
-
-        for extracted in all_skills:
-            stack = extracted.all_tech_stack
-            if len(stack) < 2:
-                continue
-            # Canonical lowercase/title normalization for robust pairing
-            normalized_stack = sorted(set(t.strip() for t in stack if t.strip()))
-            for pair in combinations(normalized_stack, 2):
-                pair_counts[pair] += 1
-
-        results = [
+        pair_counts = compute_pairwise_cooccurrences(all_skills)
+        return [
             {"tech_a": pair[0], "tech_b": pair[1], "count": count}
             for pair, count in pair_counts.most_common()
             if count >= min_count
         ]
-        return results
+
 
     # ── Generated Projects Operations ─────────────────────────────────────────
 

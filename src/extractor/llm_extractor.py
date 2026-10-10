@@ -16,47 +16,24 @@ from typing import Any, Dict, List, Optional, Union
 from google import genai
 from google.genai import types
 
+from src.extractor.gemini_client import (
+    BaseGeminiService,
+    DailyQuotaExhaustedError,
+    is_daily_quota_exhausted,
+    is_transient_error,
+    calculate_backoff_sleep,
+    DEFAULT_MODEL,
+    FALLBACK_MODEL,
+    DEFAULT_RATE_LIMIT_DELAY,
+    MAX_RETRIES,
+    INITIAL_BACKOFF,
+    _UNSET,
+)
 from src.extractor.schemas import ExtractedJob
 from src.extractor.text_sanitizer import build_sanitized_job_prompt
 from src.storage.db import DatabaseManager
 
 logger = logging.getLogger(__name__)
-
-_UNSET = object()
-DEFAULT_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
-FALLBACK_MODEL = "gemini-2.5-flash"
-DEFAULT_RATE_LIMIT_DELAY = 4.0  # Safe for 15 RPM free tier
-MAX_RETRIES = 4
-INITIAL_BACKOFF = 2.0
-
-
-class DailyQuotaExhaustedError(Exception):
-    """Raised when the Gemini free-tier daily request quota is completely exhausted."""
-    pass
-
-
-def is_daily_quota_exhausted(err_str: str) -> bool:
-    """
-    Detects whether an error message indicates the daily quota
-    (e.g. GenerateRequestsPerDayPerProjectPerModel or long retry-after delay)
-    has been exhausted, rather than a transient burst/RPM limit.
-    """
-    err_lower = err_str.lower()
-    if "generaterequestsperday" in err_lower:
-        return True
-    if "quota" in err_lower or "exhausted" in err_lower or "429" in err_lower or "retry" in err_lower:
-        if "per day" in err_lower or "daily" in err_lower:
-            return True
-        if re.search(r"retry\s+(?:in|after)\s+\d+\s*(?:h|hr|hour)", err_lower):
-            return True
-        min_match = re.search(r"retry\s+(?:in|after)\s+(\d+)\s*(?:m|min|minute)", err_lower)
-        if min_match:
-            try:
-                if int(min_match.group(1)) >= 1:
-                    return True
-            except ValueError:
-                return True
-    return False
 
 
 NON_TECH_ROLE_TERMS = [
@@ -133,45 +110,12 @@ Extraction Rules:
 """
 
 
-class GeminiExtractor:
+class GeminiExtractor(BaseGeminiService):
     """
     Client wrapper for Gemini API structured skill extraction.
     Enforces exponential backoff, jitter, rate-limit pauses, and Pydantic validation.
     """
 
-    def __init__(
-        self,
-        api_key: Any = _UNSET,
-        model: Optional[str] = None,
-        rate_limit_delay: float = DEFAULT_RATE_LIMIT_DELAY,
-        client: Any = _UNSET,
-        model_name: Optional[str] = None,
-    ):
-        if api_key is _UNSET:
-            self.api_key = (os.getenv("GEMINI_API_KEY") or "").strip()
-        else:
-            self.api_key = (api_key or "").strip()
-
-        chosen_model = (model_name or model or os.environ.get("GEMINI_MODEL", DEFAULT_MODEL)).strip()
-        self.model = chosen_model
-        self.model_name = chosen_model
-        self.rate_limit_delay = rate_limit_delay
-        self._last_call_time: float = 0.0
-
-        if client is not _UNSET:
-            self.client = client
-        elif self.api_key:
-            self.client = genai.Client(api_key=self.api_key)
-        else:
-            self.client = None
-
-    def _throttle(self) -> None:
-        """Enforces a minimum pause between API calls to honor free tier RPM quotas."""
-        if self._last_call_time > 0:
-            elapsed = time.monotonic() - self._last_call_time
-            sleep_needed = self.rate_limit_delay - elapsed
-            if sleep_needed > 0:
-                time.sleep(sleep_needed)
 
     def extract_job(
         self,

@@ -12,12 +12,21 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-from .base_scraper import BaseScraper
-
-
-class JobsDBAPIScraper(BaseScraper):
+class JobsDBAPIScraper:
     SEARCH_URL = "https://th.jobsdb.com/api/jobsearch/v5/search"
     JOB_URL = "https://th.jobsdb.com/job/{job_id}"
+
+    JOB_SCHEMA = {"id", "title", "company", "url"}
+    USER_AGENT = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    )
+
+    def _validate_job(self, job: dict) -> bool:
+        """Ensures every scraped job has the required non-empty fields."""
+        return all(job.get(key) for key in self.JOB_SCHEMA)
+
 
     # Fixed query params. `sourcesystem` is required — the endpoint rejects
     # requests without it. `locale=en-TH` keeps location/work-type labels in

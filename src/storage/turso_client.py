@@ -201,21 +201,21 @@ class TursoClient:
     def sync_extracted_skills(self, skills_data: Any) -> int:
         """
         Inserts extracted skills metadata into Turso `skills_extracted` table.
-        Supports single dict, list of dicts, or tuples of (job_id, ExtractedJob).
+        Supports single dict or list of dicts.
         Returns count of synced records.
         """
         if not self.client or not skills_data:
             return 0
 
-        # Normalize skills_data into a list of normalized records
-        records = self._normalize_skills_payload(skills_data)
+        raw_items = [skills_data] if isinstance(skills_data, dict) else list(skills_data)
         synced_count = 0
 
-        for r in records:
-            job_id = r.get("job_id")
-            if not job_id:
+        for item in raw_items:
+            r = self._normalize_skill_record(item)
+            if not r or not r.get("job_id"):
                 continue
 
+            job_id = r["job_id"]
             try:
                 self.client.execute(
                     """
@@ -293,15 +293,6 @@ class TursoClient:
             logger.error(f"[TursoClient] Failed to sync blueprint '{title}': {e}")
             return False
 
-    def close(self) -> None:
-        """Closes the underlying client connection if applicable."""
-        if self.client and hasattr(self.client, "close"):
-            try:
-                self.client.close()
-            except Exception:
-                pass
-            self.client = None
-
     @staticmethod
     def _to_json_str(val: Any) -> str:
         """Serializes list/object to JSON string safely."""
@@ -312,39 +303,15 @@ class TursoClient:
         return json.dumps(val, ensure_ascii=False)
 
     @staticmethod
-    def _normalize_skills_payload(skills_data: Any) -> List[Dict[str, Any]]:
-        """Normalizes various input formats into standardized dicts."""
-        records: List[Dict[str, Any]] = []
-
-        if isinstance(skills_data, dict):
-            if "job_id" in skills_data:
-                # Single dict containing job_id
-                records.append(TursoClient._extract_dict_skills(skills_data))
-            else:
-                # Dict of {job_id: ExtractedJob or dict}
-                for j_id, item in skills_data.items():
-                    rec = TursoClient._extract_item_skills(j_id, item)
-                    if rec:
-                        records.append(rec)
-        elif isinstance(skills_data, (list, tuple)):
-            for item in skills_data:
-                if isinstance(item, (tuple, list)) and len(item) == 2:
-                    j_id, sub_item = item
-                    rec = TursoClient._extract_item_skills(str(j_id), sub_item)
-                    if rec:
-                        records.append(rec)
-                elif isinstance(item, dict) and "job_id" in item:
-                    records.append(TursoClient._extract_dict_skills(item))
-
-        return records
-
-    @staticmethod
-    def _extract_dict_skills(d: Dict[str, Any]) -> Dict[str, Any]:
-        """Extracts skill fields from a dict."""
-        extracted = d.get("extracted")
+    def _normalize_skill_record(item: Any) -> Optional[Dict[str, Any]]:
+        """Extracts normalized record dict from ExtractedJob or dict."""
+        if not isinstance(item, dict):
+            return None
+        job_id = item.get("job_id")
+        extracted = item.get("extracted")
         if isinstance(extracted, ExtractedJob):
             return {
-                "job_id": d.get("job_id"),
+                "job_id": job_id,
                 "experience_level": extracted.experience_level,
                 "must_have_skills": extracted.must_have_skills,
                 "nice_to_have_skills": extracted.nice_to_have_skills,
@@ -353,24 +320,5 @@ class TursoClient:
                 "cloud_infra": extracted.cloud_infra,
                 "tools": extracted.tools,
             }
-        return d
+        return item
 
-    @staticmethod
-    def _extract_item_skills(job_id: str, item: Any) -> Optional[Dict[str, Any]]:
-        """Extracts skill fields from ExtractedJob or dict with given job_id."""
-        if isinstance(item, ExtractedJob):
-            return {
-                "job_id": job_id,
-                "experience_level": item.experience_level,
-                "must_have_skills": item.must_have_skills,
-                "nice_to_have_skills": item.nice_to_have_skills,
-                "frameworks": item.frameworks,
-                "databases": item.databases,
-                "cloud_infra": item.cloud_infra,
-                "tools": item.tools,
-            }
-        elif isinstance(item, dict):
-            copy_d = dict(item)
-            copy_d["job_id"] = job_id
-            return copy_d
-        return None
