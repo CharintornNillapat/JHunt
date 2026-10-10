@@ -2,13 +2,24 @@
 .env
 data/seen_jobs.json
 
-# Python
+# SQLite Databases & Storage
+data/*.db
+data/*.sqlite
+data/*.db-journal
+data/*.db-wal
+data/*.db-shm
+
+# Python caches
 __pycache__/
 *.pyc
 .pytest_cache/
 
-# Conda/env
+# Environments & virtualenvs
+.venv/
+venv/
+ENV/
 *.egg-info/
 
 # OS
 .DS_Store
+Thumbs.db

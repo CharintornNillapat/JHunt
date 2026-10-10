@@ -1,337 +1,248 @@
 # JHunt 🎯
+### Thailand Job Market Intelligence & Autonomous Portfolio Ideation Platform
 
-> An automated job scraper and Telegram alert system — built with Python, direct JSON APIs, and GitHub Actions.
-
-JHunt monitors job boards on a daily schedule, filters duplicates across runs, and fires real-time Telegram alerts for every new listing found. No machine needs to be on.
-
----
-
-## Features
-
-- **Modular scraper architecture** — add new job sites by dropping a single file into `scrapers/`
-- **Duplicate filtering** — persistent state via GitHub Actions Cache ensures you never see the same job twice
-- **Telegram alerts** — clean, formatted notifications delivered instantly to your phone
-- **Fully automated** — GitHub Actions cron job runs daily at 09:00 Bangkok time (02:00 UTC)
-- **No browser required** — Selenium, ChromeDriver and all headless-browser dependencies have been
-  removed. The scraper calls the JobsDB JSON API directly with `requests`, so a full run takes seconds
-  instead of minutes and CI needs no Chrome install
-- **Optional AI filtering** — Gemini 2.5 Flash can screen out non-engineering roles that keyword
-  filters miss
+[![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.14-blue?logo=python&logoColor=white)](https://www.python.org/)
+[![Database](https://img.shields.io/badge/Storage-SQLite3%20(WAL%20Mode)-green?logo=sqlite&logoColor=white)](https://www.sqlite.org/)
+[![Validation](https://img.shields.io/badge/Contracts-Pydantic%20v2-e92063?logo=pydantic&logoColor=white)](https://docs.pydantic.dev/)
+[![LLM](https://img.shields.io/badge/AI-Google%20GenAI%20(Gemini%202.0%20Flash)-8E75C2?logo=google&logoColor=white)](https://ai.google.dev/)
+[![CI/CD](https://img.shields.io/badge/Automation-GitHub%20Actions-2088FF?logo=github-actions&logoColor=white)](.github/workflows/scraper_cron.yml)
+[![Cost](https://img.shields.io/badge/Cost%20Tier-100%25%20Free%20Tier-success)](#operational-guardrails)
 
 ---
 
-## Project Structure
+## 1. Executive Summary & Vision
+
+**JHunt** is an end-to-end **Job Market Intelligence & Portfolio Ideation Platform** designed for the Thailand tech ecosystem. It bridges the gap between active job market demand and candidate portfolio design by:
+
+1. **Ingesting live tech job listings** directly from platform APIs (JobsDB / SEEK JSON API) in seconds without headless browsers.
+2. **Filtering and alerting** software engineering opportunities instantly to Telegram with HTML-escaped formatting.
+3. **Persisting historical market records** in a local SQLite database (`data/market.db`) with relational integrity and conflict-free deduplication.
+4. **Extracting structured technology stacks** (languages, frameworks, databases, cloud, tools, and seniority levels) via Google Gemini 2.0 Flash and strict Pydantic v2 schemas.
+5. **Computing market co-occurrence matrices** to uncover high-affinity technology clusters (e.g. `Go + PostgreSQL + Docker + Redis` or `FastAPI + PostgreSQL + Kafka`).
+6. **Autonomously ideating and exporting enterprise-grade portfolio project specs** with YAML frontmatter directly to your local ideas repository:
+   `C:\Users\MRmar\Desktop\Mid years projects\Ideas\Real-world-tech-industrial-insight-for-building-project`
+
+---
+
+## 2. System Architecture & Data Flow
+
+```
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│                                JHUNT ARCHITECTURAL PIPELINE                             │
+└────────────────────────────────────────────────────────────────────────────────────────┘
+
+  [ 1. Data Ingestion ] 
+       JobsDB / SEEK Search API (Unauthenticated JSON, dateRange=3d, sort=ListedDate)
+             │
+             ▼
+  [ 2. Filtering & Idempotency ] ──> StateManager (seen_jobs.json, 90-day TTL)
+             │                       Keyword / Seniority / Thai Location Regex Filters
+             ▼
+  [ 3. Relational Persistence ]  ──> SQLite Storage (data/market.db)
+             │                       • jobs (raw payload, title, company, salary)
+             │                       • skills_extracted (FK jobs.id, tech arrays)
+             │                       • generated_projects (audit trail of blueprints)
+             ▼
+  [ 4. Structured LLM Extraction ] 
+       Text Sanitizer (Prunes Thai/EN HR perks & boilerplate, keeps technical specs)
+             │
+             ▼
+       Gemini 2.0 Flash (Free Tier: Exponential backoff, jitter, rate-limit throttling)
+             │
+             ▼
+       Pydantic v2 Contract (ExtractedJob schema validation & canonical casing)
+             │
+             ├──────────────────────────┐
+             ▼                          ▼
+  [ 5. Telegram Dispatcher ]     [ 6. Market Clustering Engine ]
+       • HTML-escaped alerts          • Skill frequency distributions
+       • Market brief dispatch        • Technology co-occurrence matrix (pair counts)
+                                      • Role classification (English & Thai NLP heuristics)
+                                        │
+                                        ▼
+                                 [ 7. Autonomous Ideation Engine ]
+                                      • Anti-toy constraints (Strictly no To-Dos/blogs)
+                                      • Real-world Thailand contexts (PromptPay, PDPA)
+                                      • Pydantic v2 ProjectIdeaSpec validation
+                                        │
+                                        ▼
+                                 [ 8. Windows Markdown Exporter ]
+                                      • Jinja2 YAML frontmatter rendering
+                                      • Windows-safe slug paths (pathlib.Path)
+                                      • Auto-records metadata in market.db
+```
+
+---
+
+## 3. Key Engineering Highlights & Seniority Signals
+
+- **100% Free-Tier Boundary**: Zero paid external APIs. Built exclusively with Python standard library (`sqlite3`, `pathlib`, `argparse`, `json`), open-source libraries (`pydantic`, `jinja2`), and Google Gemini Free Tier.
+- **Idempotent Storage & Conflict-Free Ingestion**: SQLite configured with write-ahead logging (`PRAGMA journal_mode = WAL;`) and enforced foreign keys (`PRAGMA foreign_keys = ON;`). All inserts leverage `ON CONFLICT(id) DO NOTHING` to eliminate redundant LLM processing.
+- **Resilient LLM Quota Throttling**: Exponential backoff with random jitter handles HTTP 429 (`RESOURCE_EXHAUSTED`) gracefully, maintaining an inter-call throttle (default `4.0s`) to safely honor the 15 RPM free-tier ceiling.
+- **Compound Thai NLP Title Classification**: Solves character segmentation challenges where Thai compound titles (e.g., `นักวิเคราะห์ข้อมูลอาวุโส`, `วิศวกรปัญญาประดิษฐ์`) fail under standard ASCII word-boundary (`\b`) regex.
+- **Anti-Toy Application Guardrails**: The ideation engine strictly forbids basic CRUD, To-Do lists, and toy apps. It synthesizes enterprise constraints including PromptPay QR idempotency keys, distributed Redis locks, and outbox event streaming patterns.
+- **Windows Path Safety**: All filesystem operations strictly utilize `pathlib.Path(r"...")` to eliminate backslash escape vulnerabilities (`\U`, `\N`, `\t`).
+
+---
+
+## 4. Directory Structure
 
 ```
 JHunt/
 ├── .github/
 │   └── workflows/
-│       └── scraper_cron.yml      # GitHub Actions automation
+│       └── scraper_cron.yml          # GitHub Actions daily automation (09:00 Bangkok)
 ├── data/
-│   └── seen_jobs.json            # Runtime state — gitignored
-├── scrapers/
-│   ├── __init__.py
-│   ├── base_scraper.py           # Abstract base class (pure ABC, no browser)
-│   └── jobsdb_api.py             # JobsDB JSON API client
-├── .env                          # Local secrets — never committed
-├── .env.example                  # Documented template for .env
-├── .gitignore
-├── environment.yml               # Conda environment definition
-├── gemini_filter.py              # Optional AI relevance pass
-├── main.py                       # Orchestrator
-├── notifier.py                   # Telegram notification module
-└── state_manager.py              # Duplicate filter & state persistence
+│   ├── market.db                     # Relational SQLite database (gitignored)
+│   └── seen_jobs.json                # Deduplication cache (gitignored)
+├── docs/
+│   └── contexts/
+│       └── task-ledger.md            # Phased project tracking ledger
+├── src/
+│   ├── scraper/                      # Data collection layer
+│   │   ├── base_scraper.py           # Pure ABC HTTP client contract
+│   │   └── jobsdb_api.py             # SEEK public JSON search API client
+│   ├── storage/                      # Persistence layer
+│   │   ├── __init__.py
+│   │   └── db.py                     # SQLite DatabaseManager with WAL & Foreign Keys
+│   ├── extractor/                    # Structured LLM extraction
+│   │   ├── schemas.py                # Pydantic v2 ExtractedJob & ProjectIdeaSpec
+│   │   ├── text_sanitizer.py         # HTML/boilerplate pruner (English & Thai)
+│   │   └── llm_extractor.py          # Gemini API wrapper with exponential backoff
+│   ├── analyzer/                     # Market intelligence & clustering
+│   │   ├── schemas.py                # MarketReport, RoleCluster, CooccurrenceItem
+│   │   ├── role_classifier.py        # English/Thai regex heuristics & stack fallback
+│   │   └── cluster_analyzer.py       # Frequency & co-occurrence matrix engine
+│   ├── generator/                    # Portfolio ideation & export
+│   │   ├── ideation_engine.py        # Gemini blueprint generator with anti-toy rules
+│   │   ├── markdown_exporter.py      # Windows-safe Jinja2 markdown exporter
+│   │   └── templates/
+│   │       └── project_spec.md.jinja # Blueprint Jinja2 template with YAML Frontmatter
+│   └── notifier/                     # Alert dispatching
+│       ├── __init__.py
+│       └── telegram_notifier.py      # HTML-escaped Telegram client & Market Brief
+├── tests/                            # Automated test suite (41 tests)
+│   ├── test_storage.py               # SQLite schema & deduplication tests
+│   ├── test_extractor.py             # Sanitizer & mock Gemini extraction tests
+│   ├── test_analyzer.py              # Role classifier & clustering tests
+│   ├── test_generator.py             # Template rendering & file export tests
+│   └── test_cli.py                   # Subcommand routing & pipeline tests
+├── .env                              # Local environment variables (gitignored)
+├── .env.example                      # Documented environment template
+├── .gitignore                        # Git exclusion rules
+├── CLAUDE.md                         # Single developer constitution & project rules
+├── environment.yml                   # Conda environment definition
+├── main.py                           # Unified CLI pipeline runner
+├── notifier.py                       # Backward-compatibility shim
+└── state_manager.py                  # Deduplication & state persistence
 ```
 
 ---
 
-## Architecture
+## 5. CLI Usage Guide
 
-`main.py:main()` is a linear pipeline of eight ordered steps. Job dicts flow through unchanged;
-each stage only narrows the list.
+`main.py` provides three CLI interfaces powered by `argparse`:
 
-```
-GitHub Actions (cron: 09:00 BKK)  ─→  Restore state cache  ─→  Setup Conda  ─→  python main.py
-                                                                                     │
-  1. Fetch          JobsDBAPIScraper.scrape()          JobsDB v5 JSON API via requests
-  2. Deduplicate    StateManager.filter_new_jobs()     atomic v2 state store
-  3. Relevance      StateManager.filter_relevant_jobs()   TITLE_FILTER substring match
-  4. Seniority      StateManager.filter_by_seniority()    drop senior/lead/principal/manager
-  5. Location       StateManager.filter_by_location()     Bangkok region + remote
-  6. Semantic       filter_semantically()                 Gemini 2.5 Flash via REST (optional)
-  7. Dispatch       TelegramNotifier.send_job_alert()     HTML mode, rate-limited
-  8. Persist        StateManager.save()                   atomic write in a finally block
-                                                                                     │
-                                                          Save updated state cache  ←┘
+### 1. Full Pipeline (`run --all`)
+Executes the complete workflow: Scrapes jobs $\rightarrow$ stores in SQLite $\rightarrow$ filters for Telegram $\rightarrow$ extracts skills via Gemini $\rightarrow$ clusters market data $\rightarrow$ generates and exports a project blueprint $\rightarrow$ dispatches a Telegram market brief.
+
+```bash
+# Full end-to-end run (default when no arguments are provided)
+python main.py run --all
+
+# Limit LLM extraction to 5 jobs during testing
+python main.py run --all --limit 5
+
+# Override target role for blueprint ideation
+python main.py run --all --role "Data Engineer / Data Analyst"
 ```
 
-| Step | What it does |
-|------|--------------|
-| **1. Fetch** | One `GET` per keyword against `th.jobsdb.com/api/jobsearch/v5/search`. Unauthenticated; needs only a browser `User-Agent`. Location, salary and work type all come back in the search response, so there is no per-job detail fetch. |
-| **2. Deduplicate** | Drops job IDs already in `data/seen_jobs.json`, and marks the survivors seen **in memory**. Anything a later filter rejects therefore stays marked, so the same rejects are not re-evaluated tomorrow. |
-| **3. Relevance** | Keeps a job when its title contains any `TITLE_FILTER` term. Lowercase **substring** matching, not regex — `data` matches `Data Engineer` and also `Database Admin`. |
-| **4. Seniority** | Drops titles containing `senior`, `lead`, `principal`, `manager`, `head of`, `director` (`EXCLUDE_SENIORITY`). |
-| **5. Location** | Keeps Bangkok-region and remote roles (`INCLUDE_LOCATIONS`, Thai + English). Jobs with an empty location are kept — benefit of the doubt. |
-| **6. Semantic** | Optional Gemini pass over the survivors only. Skipped entirely unless `GEMINI_ENABLED` is set. Fail-open: any error keeps every job. |
-| **7. Dispatch** | One Telegram message per job, `parse_mode: HTML` with every field escaped, self-throttled to 1s apart with a single 429 retry. |
-| **8. Persist** | `state.save()` runs in a `finally` block, so state reaches disk on every exit path — including the no-matches early return and an unhandled exception. Writes to a temp file, `fsync`s, then `os.replace`s, so a killed run can never leave a truncated file for CI to cache. |
+> **Backward Compatibility**: Running `python main.py` with no arguments defaults to `run --all`, ensuring GitHub Actions runs without any command updates.
 
-The `BaseScraper` abstract class enforces a consistent interface across all scrapers. It is a pure
-ABC — constructing a scraper opens no browser and acquires nothing needing cleanup. Every scraper
-must implement `scrape()` and return a list of job dicts with the schema `{id, title, company, url}`,
-plus optional `location`, `salary`, `work_type`, `teaser`, `bullet_points`. This means `main.py` never
-needs to know which scraper it's running.
+### 2. Fast Alert Mode (`alert`)
+Executes scraping, deduplication, filtering, and Telegram alert dispatching only (skips LLM extraction and spec generation).
+
+```bash
+python main.py alert
+```
+
+### 3. Offline Market Intelligence & Ideation (`analyze`)
+Analyzes existing records in `data/market.db` and exports an enterprise portfolio blueprint without making external scraper calls:
+
+```bash
+# Generate blueprint for default Backend Engineer role
+python main.py analyze
+
+# Target specific engineering disciplines
+python main.py analyze --role "Frontend Engineer"
+python main.py analyze --role "Data Engineer / Data Analyst"
+python main.py analyze --role "AI / ML / Computer Vision Engineer"
+```
 
 ---
 
-## Getting Started
+## 6. Environment Setup & Configuration
 
 ### Prerequisites
+- Python 3.11+
+- Conda or standard Python virtual environment
 
-- [Anaconda](https://www.anaconda.com/) or Miniconda
-- A Telegram Bot token (see setup below)
-
-### 1. Clone the repository
-
-```bash
-git clone https://github.com/CharintornNillapat/JHunt.git
-cd JHunt
-```
-
-### 2. Create and activate the Conda environment
-
-`environment.yml` is the single source of truth for dependencies — Python 3.11 plus `requests` and
-`python-dotenv`. There is no `requirements.txt`.
+### Installation
 
 ```bash
+# Option A: Conda
 conda env create -f environment.yml
 conda activate jhunt
+
+# Option B: Standard Python venv
+python -m venv .venv
+.venv\Scripts\activate
+pip install requests python-dotenv pydantic jinja2 google-genai
 ```
 
-To pick up dependency changes later, `conda env update -f environment.yml --prune`.
+### Configuration (`.env`)
 
-### 3. Configure environment variables
+Copy `.env.example` to `.env`:
 
-Copy the template and fill it in:
+```ini
+# ── Telegram Alerts ────────────────────────────────────────────────────────
+TELEGRAM_BOT_TOKEN=123456789:AAExampleTokenReplaceMe
+TELEGRAM_CHAT_ID=123456789
 
-```bash
-cp .env.example .env
-```
-
-```bash
-TELEGRAM_BOT_TOKEN=your_bot_token_here
-TELEGRAM_CHAT_ID=your_chat_id_here
+# ── Search Keywords ────────────────────────────────────────────────────────
 SEARCH_KEYWORDS=python developer,data engineer
+
+# ── Title Relevance Filter ─────────────────────────────────────────────────
+TITLE_FILTER=python,django,fastapi,data,software,backend,programmer,developer,engineer,analyst,devops,cloud,fullstack,full stack,นักพัฒนา,โปรแกรมเมอร์,วิศวกร,นักวิเคราะห์
+
+# ── Gemini API (Free Tier) ─────────────────────────────────────────────────
+GEMINI_ENABLED=true
+GEMINI_API_KEY=AIzaSy...YourKeyFromGoogleAIStudio
+GEMINI_MODEL=gemini-2.0-flash
+
+# ── Blueprint Export Directory Override (Optional) ─────────────────────────
+# Defaults to: C:\Users\MRmar\Desktop\Mid years projects\Ideas\Real-world-tech-industrial-insight-for-building-project
+EXPORT_DIR=C:\Users\MRmar\Desktop\Mid years projects\Ideas\Real-world-tech-industrial-insight-for-building-project
 ```
-
-Values are read literally — no quotes, and no repeated variable name. `SEARCH_KEYWORDS=python
-developer,data engineer` is a plain comma-separated string, **not**
-`SEARCH_KEYWORDS=SEARCH_KEYWORDS=...` and not `"python developer","data engineer"`. Spaces inside a
-term are fine; whitespace around the commas is stripped.
-
-### 4. Initialize state file
-
-```bash
-mkdir -p data
-echo '{"version": 2, "seen": {}}' > data/seen_jobs.json
-```
-
-### 5. Run locally
-
-```bash
-python main.py
-```
-
-### 6. Verify the pieces individually
-
-**Scraper only** — prints the parsed job dicts and sends nothing. Must be run as a module: it uses a
-relative import and fails when invoked as a plain file path.
-
-```bash
-python -m scrapers.jobsdb_api
-```
-
-**Telegram smoke test** — sends two *real* messages to `TELEGRAM_CHAT_ID`, so credentials must be set
-first. The second message is deliberately loaded with HTML metacharacters
-(`Developer (C++ & Python) <Urgent>`); under the old Markdown mode it returned HTTP 400 and vanished
-silently, so it doubles as the escaping regression test.
-
-```bash
-python notifier.py
-```
-
-Both messages arriving intact means the notifier is configured correctly.
 
 ---
 
-## Telegram Bot Setup
+## 7. Testing & Verification
 
-1. Open Telegram and message **@BotFather**
-2. Send `/newbot` and follow the prompts
-3. Copy the bot token into your `.env`
-4. Start a conversation with your bot, then visit:
-   ```
-   https://api.telegram.org/bot<TOKEN>/getUpdates
-   ```
-5. Copy the `chat.id` value into your `.env`
-
----
-
-## GitHub Actions Deployment
-
-### 1. Add repository secrets
-
-Go to **Settings → Secrets and variables → Actions** and add:
-
-| Secret | Description |
-|--------|-------------|
-| `TELEGRAM_BOT_TOKEN` | Your Telegram bot token |
-| `TELEGRAM_CHAT_ID` | Your Telegram chat ID |
-| `SEARCH_KEYWORDS` | Comma-separated keywords e.g. `python developer,data engineer` |
-| `TITLE_FILTER` | Optional. Comma-separated title relevance keywords |
-| `GEMINI_ENABLED`, `GEMINI_API_KEY` | Optional. Only needed to enable the AI filter |
-
-An unset secret arrives as an empty string rather than being absent, so every optional variable falls
-back to its documented default when the secret does not exist. `GEMINI_MODEL` is not forwarded by the
-workflow — CI always uses the default model.
-
-### 2. Push to main
+Run the complete test suite:
 
 ```bash
-git push origin main
+python -m unittest discover tests
 ```
 
-The workflow runs automatically every day at 09:00 Bangkok time. To trigger manually: **Actions → JHunt Scraper → Run workflow**.
-
-### State caching between runs
-
-GitHub Actions cache entries are **immutable** — once a key exists it can never be overwritten. A
-fixed cache key therefore freezes dedupe state after the first successful run, and every later run
-re-notifies the same jobs. The workflow avoids this with a rotating key and a prefix restore:
-
-```yaml
-- uses: actions/cache/restore@v4        # step 2, before the run
-  with:
-    path: data/seen_jobs.json
-    key: seen-jobs-state-v2-${{ github.run_id }}
-    restore-keys: |
-      seen-jobs-state-v2-
-
-- uses: actions/cache/save@v4           # step 6, after the run
-  if: always()
-  with:
-    path: data/seen_jobs.json
-    key: seen-jobs-state-v2-${{ github.run_id }}
+Expected output:
+```text
+Ran 41 tests in 1.15s
+OK
 ```
-
-Each run saves under a key unique to that run, and `restore-keys` prefix-matches the most recent
-entry on the next run. `restore` and `save` must stay **split**: the combined `actions/cache@v4`
-action skips its post-run save when the key already exists, which reintroduces the original bug.
-`if: always()` persists whatever state was reached even if the scraper failed part-way.
-
-Bump the `v2` segment to deliberately discard all cached state and start fresh.
 
 ---
 
-## Adding a New Job Site
+## 8. License
 
-1. Create `scrapers/yoursite_scraper.py` extending `BaseScraper`
-2. Implement the `scrape()` method returning `list[dict]` matching the job schema
-3. Import and call it inside `run_scrapers()` in `main.py`
-
-```python
-# scrapers/indeed_api.py
-from .base_scraper import BaseScraper
-
-class IndeedAPIScraper(BaseScraper):
-    def __init__(self, keywords: list[str]):
-        self.keywords = keywords
-
-    def scrape(self) -> list[dict]:
-        # your implementation
-        ...
-```
-
-```python
-# main.py — run_scrapers()
-from scrapers.indeed_api import IndeedAPIScraper
-
-indeed = IndeedAPIScraper(keywords=config["keywords"])
-all_jobs.extend(indeed.scrape())
-```
-
-Nothing else in the pipeline changes.
-
----
-
-## Configuration
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `TELEGRAM_BOT_TOKEN` | Yes | — | Bot token from @BotFather. `TelegramNotifier` raises at startup if missing |
-| `TELEGRAM_CHAT_ID` | Yes | — | Destination chat ID. Also raises at startup if missing |
-| `SEARCH_KEYWORDS` | No | `python developer,data engineer` | Comma-separated search terms. Each becomes one JobsDB API query |
-| `TITLE_FILTER` | No | 18 EN/TH keywords | Comma-separated title keywords. A job is kept if its title contains any of them |
-| `GEMINI_ENABLED` | No | `false` | `1`/`true`/`yes`/`on` enables the semantic filter; anything else disables it |
-| `GEMINI_API_KEY` | Only if enabled | — | Key from [Google AI Studio](https://aistudio.google.com/apikey). Without it the filter logs a warning and keeps every job |
-| `GEMINI_MODEL` | No | `gemini-2.5-flash` | Model used for filtering |
-
-### Value formats
-
-`SEARCH_KEYWORDS` and `TITLE_FILTER` are both plain comma-separated strings — no quoting, no
-brackets, and no repetition of the variable name:
-
-```bash
-SEARCH_KEYWORDS=python developer,data engineer,machine learning
-TITLE_FILTER=python,backend,data,วิศวกร
-```
-
-- Whitespace around commas is stripped; spaces **inside** a term are preserved and meaningful
-  (`full stack` is one term).
-- Empty terms are discarded. If a variable resolves to nothing usable — unset, blank, or just commas —
-  the built-in default is used instead. This matters in CI, where an unset secret is passed as an
-  empty string: without that fallback `TITLE_FILTER` would become `[""]`, and since every string
-  contains `""`, the relevance filter would silently pass every job through.
-- `TITLE_FILTER` matching is lowercase **substring**, not regex. Both English and Thai terms work.
-
-See `.env.example` for a documented template.
-
-### About the Gemini filter
-
-The keyword filters can only match text, so a sales ad that mentions "Python" gets through. Enabling
-`GEMINI_ENABLED` adds a pass that screens the surviving jobs for genuine junior engineering roles.
-
-It calls the REST endpoint directly with `requests` — no SDK, no extra dependency:
-
-```
-POST https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent
-     x-goog-api-key: $GEMINI_API_KEY
-```
-
-Jobs are batched 40 per request with a 7s gap, against a free tier of roughly 10 requests/minute, so
-a typical daily run costs one or two requests. Structured output (`responseMimeType` plus a
-`responseSchema`) returns `{index, keep, score, reason}` per job rather than prose.
-
-The filter is **fail-open** by design: disabled, missing key, HTTP error, quota exhaustion,
-unparseable body, or a verdict for a job it never mentioned — every one of these keeps the affected
-jobs, and the function never raises. A wrong verdict costs one alert; a crash would cost all of them.
-Rejections are logged with the model's reason, which is the fastest way to tune the prompt.
-
----
-
-## Tech Stack
-
-| Tool | Purpose |
-|------|---------|
-| Python 3.11 | Core language |
-| requests | JobsDB JSON API, Telegram, and Gemini calls |
-| python-dotenv | Environment variable management |
-| Gemini 2.5 Flash | Optional semantic job filtering (REST, no SDK) |
-| GitHub Actions | Cron scheduling & CI/CD |
-| Anaconda | Environment management |
-
----
-
-## License
-
-MIT
+MIT License. Designed for software engineers, hiring managers, and students navigating the Thailand tech market.
