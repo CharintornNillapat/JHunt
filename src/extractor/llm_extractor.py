@@ -9,8 +9,9 @@ from __future__ import annotations
 import logging
 import os
 import random
+import re
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from google import genai
 from google.genai import types
@@ -22,10 +23,91 @@ from src.storage.db import DatabaseManager
 logger = logging.getLogger(__name__)
 
 _UNSET = object()
-DEFAULT_MODEL = "gemini-2.5-flash"
+DEFAULT_MODEL = "gemini-2.0-flash"
+FALLBACK_MODEL = "gemini-1.5-flash"
 DEFAULT_RATE_LIMIT_DELAY = 4.0  # Safe for 15 RPM free tier
 MAX_RETRIES = 4
 INITIAL_BACKOFF = 2.0
+
+
+class DailyQuotaExhaustedError(Exception):
+    """Raised when the Gemini free-tier daily request quota is completely exhausted."""
+    pass
+
+
+def is_daily_quota_exhausted(err_str: str) -> bool:
+    """
+    Detects whether an error message indicates the daily quota
+    (e.g. GenerateRequestsPerDayPerProjectPerModel or long retry-after delay)
+    has been exhausted, rather than a transient burst/RPM limit.
+    """
+    err_lower = err_str.lower()
+    if "generaterequestsperday" in err_lower:
+        return True
+    if "quota" in err_lower or "exhausted" in err_lower or "429" in err_lower or "retry" in err_lower:
+        if "per day" in err_lower or "daily" in err_lower:
+            return True
+        if re.search(r"retry\s+(?:in|after)\s+\d+\s*(?:h|hr|hour)", err_lower):
+            return True
+        min_match = re.search(r"retry\s+(?:in|after)\s+(\d+)\s*(?:m|min|minute)", err_lower)
+        if min_match:
+            try:
+                if int(min_match.group(1)) >= 1:
+                    return True
+            except ValueError:
+                return True
+    return False
+
+
+NON_TECH_ROLE_TERMS = [
+    "sales", "economic", "research", "hr", "human resource",
+    "accountant", "accounting", "finance", "financial", "marketing",
+    "admin", "administrative", "customer service", "telesales", "recruiter",
+    "recruitment", "legal", "purchasing", "procurement", "auditor",
+    "audit", "cashier", "clerk", "receptionist", "content creator",
+    "copywriter", "office manager",
+    # Thai terms
+    "ฝ่ายขาย", "บัญชี", "การเงิน", "ทรัพยากรบุคคล", "ธุรการ", "จัดซื้อ",
+]
+
+CORE_TECH_TERMS = [
+    "developer", "engineer", "programmer", "data", "devops",
+    "cloud", "ai", "software", "backend", "frontend", "fullstack",
+    "full stack", "architect", "machine learning", "ml", "qa",
+    "tester", "sre", "database", "dba", "infrastructure", "security",
+    "sysadmin", "cyber",
+    # Thai terms
+    "นักพัฒนา", "โปรแกรมเมอร์", "วิศวกร", "ไอที",
+]
+
+
+def is_tech_job(job_or_title: Union[Dict[str, Any], str], description: Optional[str] = None) -> bool:
+    """
+    Quick heuristic filter to skip obvious non-tech jobs (e.g. Sales, Economic Research, HR, Accountant)
+    unless they match core tech keywords (developer, engineer, programmer, data, devops, cloud, ai).
+    """
+    if isinstance(job_or_title, dict):
+        title = str(job_or_title.get("title") or "").strip()
+        if not description:
+            description = str(job_or_title.get("teaser") or job_or_title.get("description") or "").strip()
+    else:
+        title = str(job_or_title or "").strip()
+
+    t_lower = title.lower()
+
+    has_non_tech = any(
+        re.search(rf"\b{re.escape(k)}\b", t_lower) or (k in t_lower and not k.isascii())
+        for k in NON_TECH_ROLE_TERMS
+    )
+    if not has_non_tech:
+        return True
+
+    # If title has non-tech keywords, keep only if it explicitly matches core tech keywords
+    has_core_tech = any(
+        re.search(rf"\b{re.escape(k)}\b", t_lower) or (k in t_lower and not k.isascii())
+        for k in CORE_TECH_TERMS
+    )
+    return bool(has_core_tech)
 
 
 EXTRACTION_SYSTEM_INSTRUCTION = """You are an expert technical recruiter and software engineering systems architect analyzing the Thailand tech job market.
@@ -63,9 +145,18 @@ class GeminiExtractor:
         model: Optional[str] = None,
         rate_limit_delay: float = DEFAULT_RATE_LIMIT_DELAY,
         client: Any = _UNSET,
+        model_name: Optional[str] = None,
     ):
         self.api_key = (api_key or os.getenv("GEMINI_API_KEY") or "").strip()
-        self.model = (model or os.getenv("GEMINI_MODEL") or DEFAULT_MODEL).strip()
+        chosen_model = (model_name or model or os.getenv("GEMINI_MODEL") or DEFAULT_MODEL).strip()
+        if "2.5-flash" in chosen_model:
+            logger.info(
+                f"[GeminiExtractor] Overriding '{chosen_model}' to '{DEFAULT_MODEL}' "
+                "to prevent hitting free-tier 20 RPD cap."
+            )
+            chosen_model = DEFAULT_MODEL
+        self.model = chosen_model
+        self.model_name = chosen_model
         self.rate_limit_delay = rate_limit_delay
         self._last_call_time: float = 0.0
 
@@ -93,6 +184,7 @@ class GeminiExtractor:
         """
         Extracts structured tech stack data from sanitized job text.
         Returns ExtractedJob on success, or None on failure after retries.
+        Raises DailyQuotaExhaustedError if 429 indicates daily limit exhausted.
         """
         if not self.client:
             logger.warning("[GeminiExtractor] No API key configured; skipping extraction.")
@@ -137,6 +229,13 @@ class GeminiExtractor:
 
             except Exception as e:
                 err_str = str(e)
+                if is_daily_quota_exhausted(err_str):
+                    logger.error(
+                        f"[GeminiExtractor] Gemini daily quota exhausted ({err_str[:160]}). "
+                        "Failing fast without retrying."
+                    )
+                    raise DailyQuotaExhaustedError(f"Daily quota exhausted: {err_str}") from e
+
                 is_rate_limit = (
                     "429" in err_str
                     or "RESOURCE_EXHAUSTED" in err_str
@@ -170,34 +269,61 @@ def process_unprocessed_jobs(
     turso: Optional[Any] = None,
 ) -> int:
     """
-    Fetches un-extracted jobs from database, sanitizes text, invokes Gemini,
-    and stores ExtractedJob records into skills_extracted table.
+    Fetches un-extracted jobs from database, applies heuristic pre-filtering for non-tech roles,
+    sanitizes text, invokes Gemini, and stores ExtractedJob records into skills_extracted table.
     Synchronizes extracted skills to Turso cloud database if available.
+    Fails fast gracefully on DailyQuotaExhaustedError.
     Returns the count of successfully extracted jobs.
     """
     if extractor is None:
         extractor = GeminiExtractor()
 
-    unprocessed = db.get_unprocessed_jobs(limit=limit)
+    # If limit is specified, fetch more candidates so non-tech skipped jobs don't starve the limit
+    fetch_limit = (limit * 3) if (limit is not None and limit > 0) else None
+    unprocessed = db.get_unprocessed_jobs(limit=fetch_limit)
     if not unprocessed:
         logger.info("[BatchExtractor] No unprocessed jobs in queue.")
         return 0
 
-    logger.info(f"[BatchExtractor] Processing {len(unprocessed)} unprocessed job(s)...")
+    target_desc = f"up to {limit}" if limit else "all"
+    logger.info(f"[BatchExtractor] Processing {target_desc} tech job(s) from {len(unprocessed)} candidate(s) in queue...")
     success_count = 0
 
     for idx, job in enumerate(unprocessed, start=1):
+        if limit is not None and success_count >= limit:
+            logger.info(f"[BatchExtractor] Reached extraction limit ({limit}). Stopping batch.")
+            break
+
         job_id = str(job.get("id"))
         title = job.get("title", "")
         company = job.get("company", "")
+
+        # Heuristic pre-filter for non-tech jobs
+        if not is_tech_job(job):
+            logger.info(f"[BatchExtractor] [{idx}/{len(unprocessed)}] Skipping non-tech job: '{title}' ({company})")
+            empty_record = ExtractedJob(
+                job_title=title,
+                company=company,
+                experience_level="Non-Tech",
+            )
+            db.save_extracted_skills(job_id, empty_record)
+            continue
+
         logger.info(f"[BatchExtractor] [{idx}/{len(unprocessed)}] Extracting skills for: '{title}' ({company})")
 
         sanitized_prompt = build_sanitized_job_prompt(job)
-        extracted = extractor.extract_job(
-            job_text=sanitized_prompt,
-            fallback_title=title,
-            fallback_company=company,
-        )
+        try:
+            extracted = extractor.extract_job(
+                job_text=sanitized_prompt,
+                fallback_title=title,
+                fallback_company=company,
+            )
+        except DailyQuotaExhaustedError as e:
+            logger.warning(
+                f"[BatchExtractor] Gemini daily quota exhausted ({e}). "
+                "Terminating extraction batch gracefully and proceeding with remaining pipeline."
+            )
+            break
 
         if extracted:
             db.save_extracted_skills(job_id, extracted)
@@ -211,5 +337,5 @@ def process_unprocessed_jobs(
         else:
             logger.warning(f"[BatchExtractor] Failed to extract skills for job {job_id}. Skipping.")
 
-    logger.info(f"[BatchExtractor] Completed batch: {success_count}/{len(unprocessed)} jobs extracted.")
+    logger.info(f"[BatchExtractor] Completed batch: {success_count} jobs extracted.")
     return success_count

@@ -42,7 +42,8 @@ logger = logging.getLogger("JHunt")
 logging.basicConfig(level=logging.INFO, format="[%(asctime)s] [%(levelname)s] %(message)s")
 
 DEFAULT_KEYWORDS = "python developer,data engineer"
-DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
+DEFAULT_GEMINI_MODEL = "gemini-2.0-flash"
+DEFAULT_EXTRACTION_LIMIT = 10
 DEFAULT_TITLE_FILTER = (
     "python,django,fastapi,data,software,backend,programmer,developer,"
     "engineer,analyst,devops,cloud,fullstack,full stack,นักพัฒนา,"
@@ -66,12 +67,16 @@ def _bool_env(name: str, default: bool = False) -> bool:
 
 
 def get_config() -> dict:
+    gemini_model = (os.getenv("GEMINI_MODEL") or "").strip() or DEFAULT_GEMINI_MODEL
+    if "2.5-flash" in gemini_model:
+        gemini_model = DEFAULT_GEMINI_MODEL
+
     return {
         "keywords": _csv_env("SEARCH_KEYWORDS", DEFAULT_KEYWORDS),
         "title_filter": _csv_env("TITLE_FILTER", DEFAULT_TITLE_FILTER),
         "gemini_enabled": _bool_env("GEMINI_ENABLED", False),
         "gemini_api_key": (os.getenv("GEMINI_API_KEY") or "").strip(),
-        "gemini_model": (os.getenv("GEMINI_MODEL") or "").strip() or DEFAULT_GEMINI_MODEL,
+        "gemini_model": gemini_model,
         "export_dir": os.getenv("EXPORT_DIR"),
     }
 
@@ -226,7 +231,7 @@ def run_full_pipeline(
     db: Optional[DatabaseManager] = None,
     state: Optional[StateManager] = None,
     notifier: Optional[TelegramNotifier] = None,
-    limit: Optional[int] = None,
+    limit: Optional[int] = DEFAULT_EXTRACTION_LIMIT,
     target_role: Optional[str] = None,
     turso: Optional[TursoClient] = None,
 ) -> Dict[str, Any]:
@@ -287,12 +292,18 @@ def run_full_pipeline(
         if final_jobs and notifier:
             results["alerted"] = notify_jobs(final_jobs, notifier, state)
 
-        # Step 4: Structured LLM Extraction on unprocessed jobs
+        # Step 4: Structured LLM Extraction on unprocessed jobs (enforce default cap)
+        extraction_limit = limit if limit is not None else DEFAULT_EXTRACTION_LIMIT
         extractor = GeminiExtractor(
             api_key=config.get("gemini_api_key"),
             model=config.get("gemini_model"),
         )
-        extracted_count = process_unprocessed_jobs(db=db, extractor=extractor, limit=limit, turso=turso)
+        extracted_count = process_unprocessed_jobs(
+            db=db,
+            extractor=extractor,
+            limit=extraction_limit,
+            turso=turso,
+        )
         results["extracted"] = extracted_count
 
         # Step 5: Market Intelligence & Ideation
@@ -348,7 +359,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=True,
         help="Run all pipeline stages: scrape -> store -> extract -> alert -> analyze -> export",
     )
-    run_parser.add_argument("--limit", type=int, default=None, help="Limit number of jobs for LLM extraction")
+    run_parser.add_argument(
+        "--limit",
+        type=int,
+        default=DEFAULT_EXTRACTION_LIMIT,
+        help=f"Limit number of jobs for LLM extraction (default: {DEFAULT_EXTRACTION_LIMIT})",
+    )
     run_parser.add_argument("--role", type=str, default=None, help="Target role for portfolio spec")
 
     # alert subcommand
@@ -372,7 +388,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     try:
         # Default with no arguments is "run --all" for backwards compatibility
         if args.command is None or args.command == "run":
-            limit = getattr(args, "limit", None)
+            limit = getattr(args, "limit", DEFAULT_EXTRACTION_LIMIT)
+            if limit is None:
+                limit = DEFAULT_EXTRACTION_LIMIT
             role = getattr(args, "role", None)
             run_full_pipeline(config=config, limit=limit, target_role=role)
             return 0

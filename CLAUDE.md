@@ -74,7 +74,7 @@ echo '{"version": 2, "seen": {}}' > data/seen_jobs.json
 | `SEARCH_KEYWORDS` | Comma-separated; each becomes one JobsDB API query |
 | `TITLE_FILTER` | Comma-separated relevance keywords (English + Thai) |
 | `GEMINI_ENABLED` | `1/true/yes/on` enables the semantic filter; anything else disables it |
-| `GEMINI_API_KEY`, `GEMINI_MODEL` | Read when enabled; defaults to `gemini-2.5-flash` |
+| `GEMINI_API_KEY`, `GEMINI_MODEL` | Read when enabled; defaults to `gemini-2.0-flash` |
 | `EXPORT_DIR` | Optional override for blueprint export directory; defaults to `C:\Users\MRmar\Desktop\Mid years projects\Ideas\Real-world-tech-industrial-insight-for-building-project` |
 
 **Read env vars through the helpers in `main.py`, not `os.getenv` directly.** CI passes *unset*

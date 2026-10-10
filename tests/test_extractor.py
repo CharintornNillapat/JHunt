@@ -16,7 +16,13 @@ from src.extractor.text_sanitizer import (
     clean_html,
     strip_boilerplate,
 )
-from src.extractor.llm_extractor import GeminiExtractor, process_unprocessed_jobs
+from src.extractor.llm_extractor import (
+    DailyQuotaExhaustedError,
+    GeminiExtractor,
+    is_daily_quota_exhausted,
+    is_tech_job,
+    process_unprocessed_jobs,
+)
 from src.storage.db import DatabaseManager
 
 
@@ -231,6 +237,104 @@ class TestGeminiExtractor(unittest.TestCase):
             skills2 = db.get_extracted_skills("batch_002")
             self.assertIsNotNone(skills2)
             self.assertIn("TypeScript", skills2.must_have_skills)
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_model_override_avoids_gemini_2_5_flash(self):
+        extractor = GeminiExtractor(api_key="fake_key", model_name="gemini-2.5-flash")
+        self.assertEqual(extractor.model_name, "gemini-2.0-flash")
+
+    def test_is_tech_job_heuristic(self):
+        # Definite non-tech
+        self.assertFalse(is_tech_job("Sales Executive", "Looking for sales rep"))
+        self.assertFalse(is_tech_job("Senior Accountant", "Manage taxes and payroll"))
+        self.assertFalse(is_tech_job("HR Specialist", "Recruitment and onboarding"))
+        self.assertFalse(is_tech_job("Economic Research Analyst", "Macroeconomic analysis"))
+
+        # Definite tech
+        self.assertTrue(is_tech_job("Backend Python Engineer", "Build APIs with FastAPI"))
+        self.assertTrue(is_tech_job("Frontend Developer", "React and Next.js"))
+        self.assertTrue(is_tech_job("DevOps / Cloud Specialist", "Kubernetes and AWS"))
+        self.assertTrue(is_tech_job("AI / ML Researcher", "Train deep learning models"))
+
+        # Hybrid tech
+        self.assertTrue(is_tech_job("Sales Engineer", "Technical pre-sales and architecture"))
+        self.assertTrue(is_tech_job("Financial Data Analyst", "Analyze financial datasets with SQL"))
+
+    def test_is_daily_quota_exhausted(self):
+        self.assertTrue(is_daily_quota_exhausted(
+            "429 Quota exceeded for quota metric 'GenerateRequestsPerDayPerProjectPerModel'"
+        ))
+        self.assertTrue(is_daily_quota_exhausted("Resource exhausted: please retry in 18h20m"))
+        self.assertTrue(is_daily_quota_exhausted("Daily quota limit reached"))
+        self.assertFalse(is_daily_quota_exhausted("429 RESOURCE_EXHAUSTED: Rate limit exceeded. Retry in 10s"))
+        self.assertFalse(is_daily_quota_exhausted("503 Service Unavailable"))
+
+    def test_extract_job_fails_fast_on_daily_quota(self):
+        self.mock_client.models.generate_content.side_effect = Exception(
+            "429 Quota exceeded for quota metric 'GenerateRequestsPerDayPerProjectPerModel'"
+        )
+
+        with self.assertRaises(DailyQuotaExhaustedError):
+            self.extractor.extract_job(job_text="Backend Python Developer")
+
+        # Must not retry when daily quota is exhausted
+        self.assertEqual(self.mock_client.models.generate_content.call_count, 1)
+
+    def test_batch_process_stops_gracefully_on_daily_quota(self):
+        temp_dir = tempfile.mkdtemp(prefix="jhunt_quota_test_")
+        try:
+            db_path = Path(temp_dir) / "market.db"
+            db = DatabaseManager(db_path=db_path)
+
+            db.save_job({"id": "q_001", "title": "Developer 1", "company": "Co 1", "url": "https://example.com/1"})
+            db.save_job({"id": "q_002", "title": "Developer 2", "company": "Co 2", "url": "https://example.com/2"})
+            db.save_job({"id": "q_003", "title": "Developer 3", "company": "Co 3", "url": "https://example.com/3"})
+
+            mock_extractor = MagicMock(spec=GeminiExtractor)
+            mock_extractor.extract_job.side_effect = [
+                ExtractedJob(job_title="Developer 1", company="Co 1", experience_level="Mid", must_have_skills=["Go"]),
+                DailyQuotaExhaustedError("Daily quota exhausted"),
+            ]
+
+            processed = process_unprocessed_jobs(db=db, extractor=mock_extractor)
+            self.assertEqual(processed, 1)
+            # Only first two jobs were attempted (1 succeeded, 2 aborted, 3 untouched)
+            self.assertEqual(mock_extractor.extract_job.call_count, 2)
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_batch_process_skips_non_tech_jobs(self):
+        temp_dir = tempfile.mkdtemp(prefix="jhunt_nontech_test_")
+        try:
+            db_path = Path(temp_dir) / "market.db"
+            db = DatabaseManager(db_path=db_path)
+
+            db.save_job({"id": "nt_001", "title": "Sales Representative", "company": "Sales Co", "url": "https://example.com/nt", "teaser": "Cold calls"})
+            db.save_job({"id": "nt_002", "title": "Python Developer", "company": "Tech Co", "url": "https://example.com/t", "teaser": "Backend code"})
+
+            mock_extractor = MagicMock(spec=GeminiExtractor)
+            mock_extractor.extract_job.return_value = ExtractedJob(
+                job_title="Python Developer",
+                company="Tech Co",
+                experience_level="Junior",
+                must_have_skills=["Python"],
+            )
+
+            processed = process_unprocessed_jobs(db=db, extractor=mock_extractor)
+            self.assertEqual(processed, 1)
+            # Extractor only called for the tech job
+            self.assertEqual(mock_extractor.extract_job.call_count, 1)
+
+            # Both jobs should now be marked processed in DB
+            remaining = db.get_unprocessed_jobs()
+            self.assertEqual(len(remaining), 0)
+
+            # Non-tech job is saved with experience_level 'Non-Tech'
+            nt_skills = db.get_extracted_skills("nt_001")
+            self.assertIsNotNone(nt_skills)
+            self.assertEqual(nt_skills.experience_level, "Non-Tech")
+            self.assertEqual(nt_skills.must_have_skills, [])
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 

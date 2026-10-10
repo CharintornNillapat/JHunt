@@ -16,11 +16,13 @@ from google import genai
 from google.genai import types
 
 from src.extractor.schemas import ProjectIdeaSpec
+from src.extractor.llm_extractor import is_daily_quota_exhausted
 
 logger = logging.getLogger(__name__)
 
 _UNSET = object()
-DEFAULT_MODEL = "gemini-2.5-flash"
+DEFAULT_MODEL = "gemini-2.0-flash"
+FALLBACK_MODEL = "gemini-1.5-flash"
 DEFAULT_RATE_LIMIT_DELAY = 4.0
 MAX_RETRIES = 4
 INITIAL_BACKOFF = 2.0
@@ -55,7 +57,14 @@ class IdeationEngine:
         client: Any = _UNSET,
     ):
         self.api_key = (api_key or os.getenv("GEMINI_API_KEY") or "").strip()
-        self.model = (model or os.getenv("GEMINI_MODEL") or DEFAULT_MODEL).strip()
+        model_name = (model or os.getenv("GEMINI_MODEL") or DEFAULT_MODEL).strip()
+        if "2.5-flash" in model_name:
+            logger.info(
+                f"[IdeationEngine] Overriding '{model_name}' to '{DEFAULT_MODEL}' "
+                "to prevent hitting free-tier 20 RPD cap."
+            )
+            model_name = DEFAULT_MODEL
+        self.model = model_name
         self.rate_limit_delay = rate_limit_delay
         self._last_call_time: float = 0.0
 
@@ -131,6 +140,13 @@ Return structured JSON matching the ProjectIdeaSpec schema."""
 
             except Exception as e:
                 err_str = str(e)
+                if is_daily_quota_exhausted(err_str):
+                    logger.warning(
+                        f"[IdeationEngine] Gemini daily quota exhausted ({err_str[:120]}). "
+                        "Immediately falling back to curated archetype spec without retrying."
+                    )
+                    return self._build_fallback_spec(target_role, tech_stack, domain_hint)
+
                 is_rate_limit = (
                     "429" in err_str
                     or "RESOURCE_EXHAUSTED" in err_str

@@ -56,7 +56,7 @@ jobs:
           SEARCH_KEYWORDS: ${{ secrets.SEARCH_KEYWORDS }}
           TITLE_FILTER: ${{ secrets.TITLE_FILTER }}
           GEMINI_ENABLED: ${{ secrets.GEMINI_ENABLED }}
-        run: python main.py run --all
+        run: python main.py run --all --limit 10
 
       # ── 6. Save updated state back to cache ───────────────────────
       - name: Save job state cache

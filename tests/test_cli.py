@@ -31,11 +31,16 @@ class TestCLIParsing(unittest.TestCase):
         self.assertIsNone(args.command)
 
     def test_run_subcommand_args(self):
-        args = self.parser.parse_args(["run", "--all", "--limit", "10", "--role", "Backend Engineer"])
+        args = self.parser.parse_args(["run", "--all", "--limit", "15", "--role", "Backend Engineer"])
         self.assertEqual(args.command, "run")
         self.assertTrue(args.all)
-        self.assertEqual(args.limit, 10)
+        self.assertEqual(args.limit, 15)
         self.assertEqual(args.role, "Backend Engineer")
+
+    def test_run_subcommand_default_limit(self):
+        args = self.parser.parse_args(["run", "--all"])
+        self.assertEqual(args.command, "run")
+        self.assertEqual(args.limit, 10)
 
     def test_alert_subcommand_args(self):
         args = self.parser.parse_args(["alert", "--limit", "5"])
