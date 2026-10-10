@@ -3,20 +3,20 @@ import { ArrowLeft, FileQuestion } from "lucide-react";
 
 export default function NotFound() {
   return (
-    <div className="min-h-screen flex flex-col bg-slate-950 text-slate-100 items-center justify-center p-4">
-      <div className="max-w-md w-full text-center border border-slate-800 rounded-2xl p-8 bg-slate-900/40">
-        <div className="h-14 w-14 rounded-2xl bg-slate-800 border border-slate-700 flex items-center justify-center mx-auto mb-4 text-cyan-400">
-          <FileQuestion className="h-7 w-7" />
+    <div className="flex-1 flex flex-col items-center justify-center p-6 min-h-[60vh]">
+      <div className="max-w-md w-full text-center border border-white/[0.08] rounded-2xl p-8 bg-zinc-900/50 backdrop-blur-md">
+        <div className="h-12 w-12 rounded-xl bg-zinc-800/80 border border-white/[0.08] flex items-center justify-center mx-auto mb-4 text-cyan-400">
+          <FileQuestion className="h-6 w-6" />
         </div>
-        <h2 className="text-xl font-bold text-white mb-2">Blueprint Not Found</h2>
-        <p className="text-slate-400 text-sm mb-6">
-          The requested architecture blueprint could not be found or has not yet been synchronized.
+        <h2 className="text-lg font-bold text-white mb-2">Spec Not Found</h2>
+        <p className="text-zinc-400 text-xs mb-6">
+          The requested architecture blueprint could not be found or has not yet been ingested into Turso Cloud.
         </p>
         <Link
           href="/"
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-sm font-semibold transition-colors"
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold transition-colors"
         >
-          <ArrowLeft className="h-4 w-4" />
+          <ArrowLeft className="h-3.5 w-3.5" />
           <span>Return to Catalog</span>
         </Link>
       </div>

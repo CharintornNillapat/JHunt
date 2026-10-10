@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import Navbar from "@/components/Navbar";
+import ThreeCanvas from "@/components/ThreeCanvas";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -13,8 +15,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "JHunt | Real-World Tech Portfolio Blueprints",
-  description: "Market-driven software architecture blueprints and real-world tech job market insights.",
+  title: "JHunt | Market Intelligence & AI Blueprint Hub",
+  description:
+    "Deterministic portfolio architecture specifications derived from live Thailand tech demand signals.",
 };
 
 export default function RootLayout({
@@ -27,8 +30,10 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} dark antialiased`}
     >
-      <body className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-cyan-500/30 selection:text-cyan-200">
-        {children}
+      <body className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col font-sans selection:bg-cyan-500/25 selection:text-cyan-200 relative overflow-x-hidden">
+        <ThreeCanvas />
+        <Navbar />
+        <div className="flex-1 flex flex-col">{children}</div>
       </body>
     </html>
   );
