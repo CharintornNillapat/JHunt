@@ -359,6 +359,16 @@ class TestTursoClient(unittest.TestCase):
         self.assertIn("Go", params[4])
         self.assertIn("System Blueprint", params[5])
 
+    def test_turso_client_close(self):
+        mock_client = MagicMock()
+        turso = TursoClient(client=mock_client)
+        self.assertTrue(turso.is_available)
+        turso.close()
+        self.assertFalse(turso.is_available)
+        self.assertIsNone(turso.client)
+        mock_client.close.assert_called_once()
+
+
 
 class TestTursoExporterIntegration(unittest.TestCase):
     def setUp(self):

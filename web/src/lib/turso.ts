@@ -77,18 +77,27 @@ export async function getAllProjects(): Promise<GeneratedProject[]> {
   }
   try {
     const result = await turso.execute(
-      "SELECT id, title, role, difficulty, domain, tech_stack, spec_markdown, created_at FROM generated_projects ORDER BY created_at DESC"
+      "SELECT id, title, role, difficulty, domain, tech_stack, spec_markdown, created_at FROM generated_projects WHERE id IN (SELECT MAX(id) FROM generated_projects GROUP BY title) ORDER BY created_at DESC"
     );
-    return result.rows.map((row) => ({
-      id: Number(row.id),
-      title: String(row.title ?? ""),
-      role: String(row.role ?? ""),
-      difficulty: String(row.difficulty ?? "Intermediate"),
-      domain: String(row.domain ?? ""),
-      tech_stack: String(row.tech_stack ?? ""),
-      spec_markdown: String(row.spec_markdown ?? ""),
-      created_at: String(row.created_at ?? ""),
-    }));
+    const seenTitles = new Set<string>();
+    const deduplicated: GeneratedProject[] = [];
+    for (const row of result.rows) {
+      const title = String(row.title ?? "").trim();
+      if (!seenTitles.has(title)) {
+        seenTitles.add(title);
+        deduplicated.push({
+          id: Number(row.id),
+          title: String(row.title ?? ""),
+          role: String(row.role ?? ""),
+          difficulty: String(row.difficulty ?? "Intermediate"),
+          domain: String(row.domain ?? ""),
+          tech_stack: String(row.tech_stack ?? ""),
+          spec_markdown: String(row.spec_markdown ?? ""),
+          created_at: String(row.created_at ?? ""),
+        });
+      }
+    }
+    return deduplicated;
   } catch (err) {
     console.warn("[Turso] Could not fetch projects:", err);
     return [];

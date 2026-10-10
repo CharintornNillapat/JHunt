@@ -182,46 +182,50 @@ def run_analyze_pipeline(
     if turso is None:
         turso = TursoClient()
 
-    analyzer = ClusterAnalyzer(db=db)
-    report = analyzer.generate_market_report()
+    try:
+        analyzer = ClusterAnalyzer(db=db)
+        report = analyzer.generate_market_report()
 
-    print(f"\n================ MARKET INTELLIGENCE REPORT ================")
-    print(f"Total Postings Analyzed: {report.total_jobs_analyzed}")
-    if report.top_must_have_skills:
-        print("\nTop Must-Have Skills:")
-        for s in report.top_must_have_skills[:8]:
-            print(f"  • {s.name:<18} : {s.count:>3} jobs ({s.percentage}%)")
+        print(f"\n================ MARKET INTELLIGENCE REPORT ================")
+        print(f"Total Postings Analyzed: {report.total_jobs_analyzed}")
+        if report.top_must_have_skills:
+            print("\nTop Must-Have Skills:")
+            for s in report.top_must_have_skills[:8]:
+                print(f"  • {s.name:<18} : {s.count:>3} jobs ({s.percentage}%)")
 
-    if report.top_databases:
-        print("\nTop Databases:")
-        for d in report.top_databases[:5]:
-            print(f"  • {d.name:<18} : {d.count:>3} jobs ({d.percentage}%)")
+        if report.top_databases:
+            print("\nTop Databases:")
+            for d in report.top_databases[:5]:
+                print(f"  • {d.name:<18} : {d.count:>3} jobs ({d.percentage}%)")
 
-    if report.top_cooccurrences:
-        print("\nTop Tech Co-occurrences:")
-        for c in report.top_cooccurrences[:5]:
-            print(f"  • {c.tech_a} + {c.tech_b:<15} ({c.count} pairs)")
+        if report.top_cooccurrences:
+            print("\nTop Tech Co-occurrences:")
+            for c in report.top_cooccurrences[:5]:
+                print(f"  • {c.tech_a} + {c.tech_b:<15} ({c.count} pairs)")
 
-    # Select role for portfolio ideation
-    role = target_role or StandardRole.BACKEND.value
-    dominant_stack = analyzer.get_dominant_stack_for_role(role)
-    print(f"\nGenerating Blueprint for Role: '{role}'")
-    print(f"Dominant Stack: {', '.join(dominant_stack)}")
+        # Select role for portfolio ideation
+        role = target_role or StandardRole.BACKEND.value
+        dominant_stack = analyzer.get_dominant_stack_for_role(role)
+        print(f"\nGenerating Blueprint for Role: '{role}'")
+        print(f"Dominant Stack: {', '.join(dominant_stack)}")
 
-    engine = IdeationEngine(
-        api_key=config.get("gemini_api_key"),
-        model=config.get("gemini_model"),
-    )
-    exporter = MarkdownExporter(export_dir=config.get("export_dir"), db=db, turso=turso)
+        engine = IdeationEngine(
+            api_key=config.get("gemini_api_key"),
+            model=config.get("gemini_model"),
+        )
+        exporter = MarkdownExporter(export_dir=config.get("export_dir"), db=db, turso=turso)
 
-    spec = engine.generate_project_spec(target_role=role, tech_stack=dominant_stack)
-    if not spec:
-        print("[Main] Failed to generate project blueprint.")
-        return None
+        spec = engine.generate_project_spec(target_role=role, tech_stack=dominant_stack)
+        if not spec:
+            print("[Main] Failed to generate project blueprint.")
+            return None
 
-    exported_path = exporter.export(spec=spec, target_role=role)
-    print(f"\n[Main] Successfully exported portfolio blueprint:\n-> {exported_path}")
-    return exported_path
+        exported_path = exporter.export(spec=spec, target_role=role)
+        print(f"\n[Main] Successfully exported portfolio blueprint:\n-> {exported_path}")
+        return exported_path
+    finally:
+        if turso is not None:
+            turso.close()
 
 
 def run_full_pipeline(
@@ -335,6 +339,8 @@ def run_full_pipeline(
 
     finally:
         state.save()
+        if turso is not None:
+            turso.close()
 
     return results
 
@@ -413,4 +419,13 @@ def main(argv: Optional[List[str]] = None) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    exit_code = 1
+    try:
+        exit_code = main()
+    except Exception as e:
+        logger.error(f"[Main] Fatal unhandled error: {e}")
+        exit_code = 1
+    finally:
+        logging.shutdown()
+        # Force terminate process to prevent lingering async/aiohttp/libsql background connections from hanging CI
+        os._exit(exit_code if isinstance(exit_code, int) else 0)

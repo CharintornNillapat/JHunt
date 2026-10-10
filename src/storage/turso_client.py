@@ -81,6 +81,17 @@ class TursoClient:
         """Returns True if the Turso client is initialized and ready."""
         return self.client is not None
 
+    def close(self) -> None:
+        """Closes the underlying LibSQL client connection if open."""
+        if self.client is not None:
+            try:
+                if hasattr(self.client, "close"):
+                    self.client.close()
+            except Exception as e:
+                logger.debug(f"[TursoClient] Error closing client: {e}")
+            finally:
+                self.client = None
+
     def init_tables(self) -> None:
         """Initializes tables in Turso cloud database if they do not exist."""
         if not self.client:
