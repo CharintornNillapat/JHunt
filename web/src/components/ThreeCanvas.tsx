@@ -11,7 +11,7 @@ export default function ThreeCanvas() {
     if (!container) return;
 
     const width = container.clientWidth || window.innerWidth;
-    const height = container.clientHeight || window.innerHeight;
+    const height = container.clientHeight || 540;
 
     // 1. Scene & Camera Setup
     const scene = new THREE.Scene();
@@ -202,7 +202,7 @@ export default function ThreeCanvas() {
   return (
     <div
       ref={containerRef}
-      className="pointer-events-none fixed inset-0 -z-10 overflow-hidden select-none"
+      className="pointer-events-none absolute inset-x-0 top-0 h-[560px] -z-10 overflow-hidden select-none [mask-image:linear-gradient(to_bottom,black_45%,transparent_100%)]"
       aria-hidden="true"
     />
   );

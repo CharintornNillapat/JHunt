@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { motion } from "framer-motion";
 import { Terminal, BarChart3, Layers } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -18,7 +19,6 @@ function GithubIcon({ className }: { className?: string }) {
   );
 }
 
-
 export default function Navbar() {
   const pathname = usePathname();
 
@@ -28,7 +28,7 @@ export default function Navbar() {
   ];
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b border-white/[0.08] bg-zinc-950/70 backdrop-blur-md">
+    <header className="sticky top-0 z-50 w-full border-b border-white/[0.07] bg-[#08080a]/80 backdrop-blur-md">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
         {/* Brand / Logo */}
         <div className="flex items-center gap-8">
@@ -41,13 +41,13 @@ export default function Navbar() {
                 JHunt
               </span>
               <span className="text-[10px] tracking-wider font-mono text-zinc-500 uppercase -mt-0.5">
-                Market Hub
+                Obsidian Hub // V2
               </span>
             </div>
           </Link>
 
-          {/* Navigation Links */}
-          <nav className="hidden md:flex items-center gap-1">
+          {/* Navigation Links with animated active pill */}
+          <nav className="hidden md:flex items-center gap-1.5 p-1 rounded-lg bg-zinc-900/60 border border-white/[0.06]">
             {navItems.map((item) => {
               const Icon = item.icon;
               const isActive =
@@ -60,28 +60,33 @@ export default function Navbar() {
                   key={item.href}
                   href={item.href}
                   className={cn(
-                    "flex items-center gap-2 px-3.5 py-1.5 rounded-md text-xs font-medium transition-all duration-200",
-                    isActive
-                      ? "text-cyan-400 bg-cyan-950/40 border border-cyan-800/50 shadow-sm"
-                      : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/60 border border-transparent"
+                    "relative flex items-center gap-2 px-3.5 py-1.5 rounded-md text-xs font-medium transition-colors duration-200",
+                    isActive ? "text-cyan-300" : "text-zinc-400 hover:text-zinc-200"
                   )}
                 >
-                  <Icon className="h-3.5 w-3.5" />
-                  <span>{item.label}</span>
+                  {isActive && (
+                    <motion.span
+                      layoutId="activeNavPill"
+                      className="absolute inset-0 rounded-md bg-cyan-950/70 border border-cyan-500/30 shadow-sm"
+                      transition={{ type: "spring", stiffness: 260, damping: 25 }}
+                    />
+                  )}
+                  <Icon className="h-3.5 w-3.5 relative z-10" />
+                  <span className="relative z-10">{item.label}</span>
                 </Link>
               );
             })}
           </nav>
         </div>
 
-        {/* Live Status Pill & GitHub */}
+        {/* Live System Telemetry Indicator & GitHub */}
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 px-2.5 py-1 rounded-full bg-zinc-900/90 border border-emerald-500/20 text-emerald-400 text-[11px] font-mono shadow-inner">
+          <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-zinc-900/90 border border-emerald-500/20 text-emerald-400 text-[11px] font-mono shadow-inner">
             <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
             </span>
-            <span className="tracking-wide">24H INGESTION ACTIVE</span>
+            <span className="tracking-wide font-medium">PIPELINE IDLE / CRON 08:00 ICT</span>
           </div>
 
           <a
@@ -92,7 +97,6 @@ export default function Navbar() {
           >
             <GithubIcon className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">GitHub</span>
-
           </a>
         </div>
       </div>

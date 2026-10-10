@@ -2,8 +2,8 @@
 @plugin "@tailwindcss/typography";
 
 :root {
-  --background: #020617;
-  --foreground: #f8fafc;
+  --background: #08080a;
+  --foreground: #f4f4f5;
 }
 
 @theme inline {
@@ -14,7 +14,7 @@
 }
 
 body {
-  background-color: #020617;
-  color: #f8fafc;
+  background-color: #08080a;
+  color: #f4f4f5;
   min-height: 100vh;
 }

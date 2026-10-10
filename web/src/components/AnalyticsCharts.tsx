@@ -13,6 +13,7 @@ import {
 } from "recharts";
 import type { MarketAnalytics, MarketMetricItem } from "@/lib/turso";
 import { Terminal, Cloud, Database, Code2 } from "lucide-react";
+import SpotlightCard from "@/components/SpotlightCard";
 
 interface AnalyticsChartsProps {
   analytics: MarketAnalytics;
@@ -43,11 +44,13 @@ function CustomBarTooltip({
   if (active && payload && payload.length) {
     const data = payload[0].payload;
     return (
-      <div className="rounded-lg bg-zinc-900/95 border border-white/10 px-3 py-2 text-xs shadow-xl backdrop-blur-md">
+      <div className="rounded-lg bg-[#0c0d12]/95 border border-white/10 px-3.5 py-2.5 text-xs shadow-2xl backdrop-blur-md">
         <div className="font-semibold text-zinc-100">{data.name}</div>
-        <div className="font-mono text-cyan-400 mt-0.5">
-          {data.count} mentions{" "}
-          {data.percentage ? `(${data.percentage}% demand)` : ""}
+        <div className="font-mono text-cyan-400 mt-1 flex items-center gap-1.5">
+          <span>{data.count} mentions</span>
+          {data.percentage ? (
+            <span className="text-zinc-500">({data.percentage}% demand)</span>
+          ) : null}
         </div>
       </div>
     );
@@ -65,9 +68,9 @@ function CustomPieTooltip({
   if (active && payload && payload.length) {
     const data = payload[0].payload;
     return (
-      <div className="rounded-lg bg-zinc-900/95 border border-white/10 px-3 py-2 text-xs shadow-xl backdrop-blur-md">
+      <div className="rounded-lg bg-[#0c0d12]/95 border border-white/10 px-3.5 py-2.5 text-xs shadow-2xl backdrop-blur-md">
         <div className="font-semibold text-zinc-100">{data.name}</div>
-        <div className="font-mono text-indigo-400 mt-0.5">
+        <div className="font-mono text-indigo-400 mt-1">
           {data.count} positions ({data.percentage ?? 0}%)
         </div>
       </div>
@@ -82,7 +85,7 @@ export default function AnalyticsCharts({ analytics }: AnalyticsChartsProps) {
       {/* 2-Column Analytics Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Chart 1: Language Demand Index */}
-        <div className="rounded-xl border border-white/[0.08] bg-zinc-900/50 backdrop-blur-md p-6">
+        <SpotlightCard className="p-6">
           <div className="flex items-center justify-between mb-4 pb-3 border-b border-white/[0.06]">
             <div className="flex items-center gap-2.5">
               <Code2 className="h-4 w-4 text-cyan-400" />
@@ -118,22 +121,31 @@ export default function AnalyticsCharts({ analytics }: AnalyticsChartsProps) {
                   axisLine={false}
                   width={80}
                 />
-                <Tooltip content={<CustomBarTooltip />} cursor={{ fill: "rgba(255,255,255,0.03)" }} />
+                <Tooltip
+                  content={<CustomBarTooltip />}
+                  cursor={{ fill: "rgba(255,255,255,0.03)" }}
+                />
                 <Bar dataKey="count" radius={[0, 4, 4, 0]}>
                   {analytics.languages.map((_, index) => (
                     <Cell
                       key={`cell-${index}`}
-                      fill={index === 0 ? "#06b6d4" : index === 1 ? "#38bdf8" : "#0284c7"}
+                      fill={
+                        index === 0
+                          ? "#06b6d4"
+                          : index === 1
+                          ? "#38bdf8"
+                          : "#0284c7"
+                      }
                     />
                   ))}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
           </div>
-        </div>
+        </SpotlightCard>
 
         {/* Chart 2: Cloud Infrastructure Share */}
-        <div className="rounded-xl border border-white/[0.08] bg-zinc-900/50 backdrop-blur-md p-6">
+        <SpotlightCard className="p-6">
           <div className="flex items-center justify-between mb-4 pb-3 border-b border-white/[0.06]">
             <div className="flex items-center gap-2.5">
               <Cloud className="h-4 w-4 text-indigo-400" />
@@ -174,10 +186,16 @@ export default function AnalyticsCharts({ analytics }: AnalyticsChartsProps) {
           {/* Minimalist Legend */}
           <div className="flex flex-wrap items-center justify-center gap-3 pt-3 border-t border-white/[0.04]">
             {analytics.clouds.map((item, idx) => (
-              <div key={item.name} className="flex items-center gap-1.5 text-xs font-mono">
+              <div
+                key={item.name}
+                className="flex items-center gap-1.5 text-xs font-mono"
+              >
                 <span
                   className="h-2 w-2 rounded-full"
-                  style={{ backgroundColor: CLOUD_PALETTE[idx % CLOUD_PALETTE.length] }}
+                  style={{
+                    backgroundColor:
+                      CLOUD_PALETTE[idx % CLOUD_PALETTE.length],
+                  }}
                 />
                 <span className="text-zinc-400">{item.name}</span>
                 <span className="text-zinc-500 font-sans text-[11px]">
@@ -186,13 +204,13 @@ export default function AnalyticsCharts({ analytics }: AnalyticsChartsProps) {
               </div>
             ))}
           </div>
-        </div>
+        </SpotlightCard>
       </div>
 
       {/* Database & Framework Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Persistence & Data Engines */}
-        <div className="rounded-xl border border-white/[0.08] bg-zinc-900/50 backdrop-blur-md p-6">
+        <SpotlightCard className="p-6">
           <div className="flex items-center justify-between mb-4 pb-3 border-b border-white/[0.06]">
             <div className="flex items-center gap-2">
               <Database className="h-4 w-4 text-sky-400" />
@@ -202,26 +220,26 @@ export default function AnalyticsCharts({ analytics }: AnalyticsChartsProps) {
             </div>
             <span className="text-[10px] font-mono text-zinc-500">Live P95</span>
           </div>
-          <div className="space-y-3">
+          <div className="space-y-3.5">
             {analytics.databases.map((db) => (
-              <div key={db.name} className="space-y-1">
+              <div key={db.name} className="space-y-1.5">
                 <div className="flex justify-between text-xs font-mono">
-                  <span className="text-zinc-300">{db.name}</span>
-                  <span className="text-zinc-500">{db.percentage ?? 0}%</span>
+                  <span className="text-zinc-300 font-medium">{db.name}</span>
+                  <span className="text-cyan-400">{db.percentage ?? 0}%</span>
                 </div>
                 <div className="h-1.5 w-full rounded-full bg-zinc-800/80 overflow-hidden">
                   <div
-                    className="h-full rounded-full bg-sky-500/80"
+                    className="h-full rounded-full bg-gradient-to-r from-cyan-500 to-sky-400"
                     style={{ width: `${Math.min(db.percentage ?? 0, 100)}%` }}
                   />
                 </div>
               </div>
             ))}
           </div>
-        </div>
+        </SpotlightCard>
 
         {/* Application Frameworks */}
-        <div className="rounded-xl border border-white/[0.08] bg-zinc-900/50 backdrop-blur-md p-6">
+        <SpotlightCard className="p-6">
           <div className="flex items-center justify-between mb-4 pb-3 border-b border-white/[0.06]">
             <div className="flex items-center gap-2">
               <Terminal className="h-4 w-4 text-emerald-400" />
@@ -231,23 +249,23 @@ export default function AnalyticsCharts({ analytics }: AnalyticsChartsProps) {
             </div>
             <span className="text-[10px] font-mono text-zinc-500">Live P95</span>
           </div>
-          <div className="space-y-3">
+          <div className="space-y-3.5">
             {analytics.frameworks.map((fw) => (
-              <div key={fw.name} className="space-y-1">
+              <div key={fw.name} className="space-y-1.5">
                 <div className="flex justify-between text-xs font-mono">
-                  <span className="text-zinc-300">{fw.name}</span>
-                  <span className="text-zinc-500">{fw.percentage ?? 0}%</span>
+                  <span className="text-zinc-300 font-medium">{fw.name}</span>
+                  <span className="text-emerald-400">{fw.percentage ?? 0}%</span>
                 </div>
                 <div className="h-1.5 w-full rounded-full bg-zinc-800/80 overflow-hidden">
                   <div
-                    className="h-full rounded-full bg-emerald-500/80"
+                    className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-400"
                     style={{ width: `${Math.min(fw.percentage ?? 0, 100)}%` }}
                   />
                 </div>
               </div>
             ))}
           </div>
-        </div>
+        </SpotlightCard>
       </div>
     </div>
   );
