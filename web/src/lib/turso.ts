@@ -11,8 +11,13 @@ export interface GeneratedProject {
   created_at: string;
 }
 
-const url = process.env.TURSO_DATABASE_URL?.trim();
+let rawUrl = process.env.TURSO_DATABASE_URL?.trim();
 const authToken = process.env.TURSO_AUTH_TOKEN?.trim();
+
+if (rawUrl?.startsWith("libsql://")) {
+  rawUrl = "https://" + rawUrl.slice("libsql://".length);
+}
+const url = rawUrl;
 
 export const isTursoConfigured = Boolean(url);
 

@@ -182,6 +182,40 @@ class TestGeminiExtractor(unittest.TestCase):
 
         self.assertIsNone(result)
 
+    def test_extract_job_503_fallback_to_gemini_2_5_flash(self):
+        expected_job = ExtractedJob(
+            job_title="DevOps Engineer",
+            company="Cloud Corp",
+            experience_level="Mid",
+            must_have_skills=["Terraform", "Kubernetes"],
+        )
+        success_response = MagicMock()
+        success_response.parsed = expected_job
+
+        # First 2 attempts fail with 503, attempt 3 succeeds with fallback model
+        self.mock_client.models.generate_content.side_effect = [
+            Exception("503 UNAVAILABLE: Model is currently experiencing high demand"),
+            Exception("503 UNAVAILABLE: Model is currently experiencing high demand"),
+            success_response,
+        ]
+
+        with patch("time.sleep") as mock_sleep:
+            result = self.extractor.extract_job(job_text="DevOps JD")
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result.job_title, "DevOps Engineer")
+        self.assertEqual(self.mock_client.models.generate_content.call_count, 3)
+
+        calls = self.mock_client.models.generate_content.call_args_list
+        # Attempt 1 and 2 used gemini-3.8-flash
+        self.assertEqual(calls[0][1]["model"], "gemini-3.8-flash")
+        self.assertEqual(calls[1][1]["model"], "gemini-3.8-flash")
+        # Attempt 3 fell back to gemini-2.5-flash
+        self.assertEqual(calls[2][1]["model"], "gemini-2.5-flash")
+
+        # Sleep was called with jittered backoff
+        self.assertEqual(mock_sleep.call_count, 2)
+
     def test_batch_process_unprocessed_jobs(self):
         temp_dir = tempfile.mkdtemp(prefix="jhunt_batch_test_")
         try:

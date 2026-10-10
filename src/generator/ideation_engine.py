@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 _UNSET = object()
 DEFAULT_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
-FALLBACK_MODEL = "gemini-1.5-flash"
+FALLBACK_MODEL = "gemini-2.5-flash"
 DEFAULT_RATE_LIMIT_DELAY = 4.0
 MAX_RETRIES = 4
 INITIAL_BACKOFF = 2.0
@@ -111,13 +111,15 @@ Return structured JSON matching the ProjectIdeaSpec schema."""
             temperature=0.2,
         )
 
+        current_model = self.model
+        consecutive_503 = 0
         backoff = INITIAL_BACKOFF
         for attempt in range(1, MAX_RETRIES + 1):
             self._throttle()
             try:
                 self._last_call_time = time.monotonic()
                 response = self.client.models.generate_content(
-                    model=self.model,
+                    model=current_model,
                     contents=user_prompt,
                     config=config,
                 )
@@ -145,22 +147,39 @@ Return structured JSON matching the ProjectIdeaSpec schema."""
                     )
                     return self._build_fallback_spec(target_role, tech_stack, domain_hint)
 
+                is_503 = "503" in err_str or "service unavailable" in err_str.lower() or "unavailable" in err_str.lower()
                 is_rate_limit = (
                     "429" in err_str
                     or "RESOURCE_EXHAUSTED" in err_str
                     or "rate limit" in err_str.lower()
                     or "quota" in err_str.lower()
                 )
-                is_transient = is_rate_limit or "503" in err_str or "timeout" in err_str.lower()
+                is_transient = is_503 or is_rate_limit or "timeout" in err_str.lower()
+
+                if is_503:
+                    consecutive_503 += 1
+                    if consecutive_503 >= 2 and current_model == "gemini-3.8-flash":
+                        logger.warning(
+                            f"[IdeationEngine] Model {current_model} received {consecutive_503} consecutive 503 errors. "
+                            f"Falling back to {FALLBACK_MODEL} for subsequent attempts."
+                        )
+                        current_model = FALLBACK_MODEL
 
                 if is_transient and attempt < MAX_RETRIES:
-                    jitter = random.uniform(0.2, 1.0)
-                    sleep_time = backoff + jitter
+                    if is_503:
+                        wait_schedule = [5.0, 10.0, 20.0]
+                        base_wait = wait_schedule[min(consecutive_503 - 1, len(wait_schedule) - 1)]
+                        jitter = random.uniform(0.5, 2.0)
+                        sleep_time = base_wait + jitter
+                    else:
+                        jitter = random.uniform(0.2, 1.0)
+                        sleep_time = backoff + jitter
+                        backoff *= 2.0
+
                     logger.warning(
-                        f"[IdeationEngine] Transient error ({err_str[:120]}). Retrying in {sleep_time:.1f}s..."
+                        f"[IdeationEngine] Transient error ({err_str[:120]}). Retrying in {sleep_time:.1f}s (model: {current_model})..."
                     )
                     time.sleep(sleep_time)
-                    backoff *= 2.0
                     continue
 
                 logger.error(f"[IdeationEngine] Generation error (attempt {attempt}): {e}")

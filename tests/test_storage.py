@@ -216,6 +216,27 @@ class TestTursoClient(unittest.TestCase):
                 spec_markdown="# Test",
             ))
 
+    def test_turso_url_protocol_normalization(self):
+        # 1. Normalize libsql:// to https://
+        mock_client = MagicMock()
+        turso = TursoClient(
+            database_url="libsql://jhunt-db-test.aws-ap-northeast-1.turso.io",
+            auth_token="test-token",
+            client=mock_client,
+        )
+        self.assertEqual(turso.database_url, "https://jhunt-db-test.aws-ap-northeast-1.turso.io")
+        self.assertEqual(turso.db_url, "https://jhunt-db-test.aws-ap-northeast-1.turso.io")
+        self.assertEqual(turso.auth_token, "test-token")
+
+        # 2. Strip quotes and whitespace
+        turso2 = TursoClient(
+            database_url='  "libsql://jhunt-quoted.turso.io"  ',
+            auth_token="  'token-with-quotes'  ",
+            client=mock_client,
+        )
+        self.assertEqual(turso2.database_url, "https://jhunt-quoted.turso.io")
+        self.assertEqual(turso2.auth_token, "token-with-quotes")
+
     def test_table_initialization_with_mock_client(self):
         mock_client = MagicMock()
         turso = TursoClient(client=mock_client)

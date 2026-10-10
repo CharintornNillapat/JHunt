@@ -32,8 +32,17 @@ class TursoClient:
         auth_token: Optional[str] = None,
         client: Optional[Any] = None,
     ):
-        self.database_url = (database_url or os.getenv("TURSO_DATABASE_URL") or "").strip()
-        self.auth_token = (auth_token or os.getenv("TURSO_AUTH_TOKEN") or "").strip()
+        raw_url = (database_url or os.getenv("TURSO_DATABASE_URL") or "").strip().strip('"').strip("'")
+        raw_token = (auth_token or os.getenv("TURSO_AUTH_TOKEN") or "").strip().strip('"').strip("'")
+
+        # Automatically normalize libsql:// to https:// to use standard HTTPS transport
+        # and prevent WebSocket 400 handshake failures in CI/local runs.
+        if raw_url.startswith("libsql://"):
+            raw_url = "https://" + raw_url[len("libsql://"):]
+
+        self.database_url = raw_url
+        self.db_url = raw_url
+        self.auth_token = raw_token
 
         if client is not None:
             self.client = client
