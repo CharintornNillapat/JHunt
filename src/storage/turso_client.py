@@ -286,9 +286,10 @@ class TursoClient:
             raw_content = job.get("raw_content")
             if raw_content is None:
                 raw_payload = {
-                    "teaser": job.get("teaser", ""),
-                    "bullet_points": job.get("bullet_points", []),
-                    "listing_date": job.get("listing_date", ""),
+                    "teaser": job.get("teaser", "") or "",
+                    "bullet_points": job.get("bullet_points", []) or [],
+                    "listing_date": job.get("listing_date", "") or job.get("posted_at", "") or "",
+                    "description": job.get("description", "") or "",
                 }
                 raw_content_str = json.dumps(raw_payload, ensure_ascii=False)
             elif isinstance(raw_content, dict):
@@ -297,8 +298,8 @@ class TursoClient:
                 raw_content_str = str(raw_content)
 
             stmts.append((
-                "INSERT OR IGNORE INTO jobs (id, title, company, url, location, salary, work_type, raw_content) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT OR IGNORE INTO jobs (id, title, company, url, location, salary, work_type, raw_content, posted_at, source) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 [
                     job_id,
                     str(job.get("title") or "").strip(),
@@ -308,6 +309,8 @@ class TursoClient:
                     str(job.get("salary") or "").strip(),
                     str(job.get("work_type") or "").strip(),
                     raw_content_str,
+                    str(job.get("posted_at") or job.get("listing_date") or "").strip() or None,
+                    str(job.get("source") or "").strip() or None,
                 ],
             ))
 

@@ -28,6 +28,8 @@ load_dotenv()
 
 from gemini_filter import filter_semantically
 from scrapers.jobsdb_api import JobsDBAPIScraper
+from src.models import RawJob
+from src.scrapers import get_active_scrapers
 from src.analyzer.cluster_analyzer import ClusterAnalyzer
 from src.analyzer.role_classifier import StandardRole
 from src.extractor.llm_extractor import GeminiExtractor, process_unprocessed_jobs
@@ -78,12 +80,25 @@ def get_config() -> dict:
     }
 
 
-def run_scrapers(config: dict) -> list[dict]:
-    """Instantiates and executes active scrapers."""
-    all_jobs = []
-    print("[Main] Running JobsDB scraper...")
-    jobsdb = JobsDBAPIScraper(keywords=config["keywords"])
-    all_jobs.extend(jobsdb.scrape())
+def run_scrapers(config: dict, limit: int = 50) -> list[RawJob]:
+    """
+    Instantiates and executes all active scrapers via the adapter interface.
+    Aggregates jobs from JobsDB, Blognone, and JobThai.
+    """
+    all_jobs: list[RawJob] = []
+    scrapers = get_active_scrapers()
+    keywords = config.get("keywords") or ["python developer", "data engineer"]
+
+    for scraper in scrapers:
+        name = scraper.__class__.__name__
+        print(f"[Main] Running {name}...")
+        try:
+            scraped = scraper.scrape(keywords=keywords, limit=limit)
+            print(f"[Main] {name} yielded {len(scraped)} job(s).")
+            all_jobs.extend(scraped)
+        except Exception as e:
+            logger.warning(f"[Main] {name} encountered error: {e}")
+
     return all_jobs
 
 

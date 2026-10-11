@@ -105,28 +105,31 @@ class DatabaseManager:
             return False
 
         raw_payload = {
-            "teaser": job.get("teaser", ""),
-            "bullet_points": job.get("bullet_points", []),
-            "listing_date": job.get("listing_date", ""),
+            "teaser": job.get("teaser", "") or "",
+            "bullet_points": job.get("bullet_points", []) or [],
+            "listing_date": job.get("listing_date", "") or job.get("posted_at", "") or "",
+            "description": job.get("description", "") or "",
         }
 
         with self._connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                INSERT INTO jobs (id, title, company, url, location, salary, work_type, raw_content)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO jobs (id, title, company, url, location, salary, work_type, raw_content, posted_at, source)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO NOTHING;
                 """,
                 (
                     job_id,
-                    job.get("title", "").strip(),
-                    job.get("company", "").strip(),
-                    job.get("url", "").strip(),
-                    job.get("location", "").strip(),
-                    job.get("salary", "").strip(),
-                    job.get("work_type", "").strip(),
+                    str(job.get("title") or "").strip(),
+                    str(job.get("company") or "").strip(),
+                    str(job.get("url") or "").strip(),
+                    str(job.get("location") or "").strip(),
+                    str(job.get("salary") or "").strip(),
+                    str(job.get("work_type") or "").strip(),
                     json.dumps(raw_payload, ensure_ascii=False),
+                    str(job.get("posted_at") or job.get("listing_date") or "").strip() or None,
+                    str(job.get("source") or "").strip() or None,
                 ),
             )
             return cursor.rowcount > 0
@@ -147,14 +150,15 @@ class DatabaseManager:
                 if not job_id:
                     continue
                 raw_payload = {
-                    "teaser": job.get("teaser", ""),
-                    "bullet_points": job.get("bullet_points", []),
-                    "listing_date": job.get("listing_date", ""),
+                    "teaser": job.get("teaser", "") or "",
+                    "bullet_points": job.get("bullet_points", []) or [],
+                    "listing_date": job.get("listing_date", "") or job.get("posted_at", "") or "",
+                    "description": job.get("description", "") or "",
                 }
                 cursor.execute(
                     """
-                    INSERT INTO jobs (id, title, company, url, location, salary, work_type, raw_content)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO jobs (id, title, company, url, location, salary, work_type, raw_content, posted_at, source)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(id) DO NOTHING;
                     """,
                     (
@@ -166,6 +170,8 @@ class DatabaseManager:
                         str(job.get("salary") or "").strip(),
                         str(job.get("work_type") or "").strip(),
                         json.dumps(raw_payload, ensure_ascii=False),
+                        str(job.get("posted_at") or job.get("listing_date") or "").strip() or None,
+                        str(job.get("source") or "").strip() or None,
                     ),
                 )
                 if cursor.rowcount > 0:
