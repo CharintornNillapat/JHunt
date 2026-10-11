@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "turso": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-turso-cloud"
+      ],
+      "env": {
+        "TURSO_API_TOKEN": "${TURSO_API_TOKEN}",
+        "TURSO_ORG": "${TURSO_ORG}",
+        "TURSO_ORGANIZATION": "${TURSO_ORG}",
+        "TURSO_DATABASE_URL": "${TURSO_DATABASE_URL}",
+        "TURSO_AUTH_TOKEN": "${TURSO_AUTH_TOKEN}",
+        "TURSO_DEFAULT_DATABASE": "jhunt-db"
+      }
+    }
+  }
+}

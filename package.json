@@ -1,0 +1,29 @@
+{
+  "name": "jhunt",
+  "version": "1.0.0",
+  "description": "[![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.14-blue?logo=python&logoColor=white)](https://www.python.org/) [![Database](https://img.shields.io/badge/Storage-Turso%20LibSQL%20%2F%20SQLite3-green?logo=sqlite&logoColor=white)](https://turso.tech/) [![Validation](https://img.shields.io/badge/Contracts-Pydantic%20v2-e92063?logo=pydantic&logoColor=white)](https://docs.pydantic.dev/) [![LLM](https://img.shields.io/badge/AI-Google%20GenAI%20(Gemini%202.0%20Flash)-8E75C2?logo=google&logoColor=white)](https://ai.google.dev/) [![CI/CD](https://img.shields.io/badge/Automation-GitHub%20Actions-2088FF?logo=github-actions&logoColor=white)](.github/workflows/scraper_cron.yml) [![Cost](https://img.shields.io/badge/Cost%20Tier-100%25%20Free%20Tier-success)](#operational-guardrails)",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CharintornNillapat/JHunt.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/CharintornNillapat/JHunt/issues"
+  },
+  "homepage": "https://github.com/CharintornNillapat/JHunt#readme",
+  "dependencies": {
+    "@tursodatabase/mcp": "npm:mcp-turso-cloud@^0.0.11",
+    "mcp-turso-cloud": "^0.0.11"
+  }
+}

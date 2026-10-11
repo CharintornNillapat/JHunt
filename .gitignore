@@ -20,6 +20,7 @@ venv/
 ENV/
 *.egg-info/
 
-# OS
+# OS & Editor
 .DS_Store
 Thumbs.db
+node_modules/
