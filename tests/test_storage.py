@@ -4,14 +4,18 @@ Unit tests for data contracts (Pydantic schemas) and SQLite persistence layer.
 Verifies table creation, duplicate prevention, foreign keys, and co-occurrence aggregation.
 """
 import shutil
+import sqlite3
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from src.extractor.schemas import ExtractedJob, ProjectIdeaSpec
+from src.extractor.schemas import ExtractedJob, FailureMode, ProjectIdeaSpec
 from src.generator.markdown_exporter import MarkdownExporter
 from src.storage.db import DatabaseManager
+from src.storage.schema import SCHEMA_STATEMENTS
 from src.storage.turso_client import TursoClient
 
 
@@ -38,15 +42,19 @@ class TestDataContracts(unittest.TestCase):
         spec = ProjectIdeaSpec(
             title="Real-Time Food Delivery Dispatcher",
             domain_industry="Logistics & On-Demand Delivery",
-            target_tech_stack=["Python", "FastAPI", "Redis", "PostgreSQL", "Docker"],
-            architecture_overview="Microservice architecture with event streaming and geospatial indexing",
-            core_features=["Driver matching", "Geofencing", "WebSocket updates"],
+            core_problem="Assign each order to exactly one rider when dispatchers act concurrently.",
+            target_tech_stack=["Python", "FastAPI", "PostgreSQL", "Docker"],
+            system_boundary="One FastAPI service and one PostgreSQL database.",
+            walking_skeleton=["Create order", "Assign rider", "Reject stale assignment"],
+            contracts="`POST /assignments` returns 200 or 409.",
             database_schema="PostGIS enabled PostgreSQL schema for locations and orders",
-            engineering_challenges=["High concurrent location updates", "Sub-second dispatching"],
+            failure_modes=[{"failure": "Two dispatchers assign one order", "recovery": "Version check; loser gets 409"}],
+            verification=["pytest: two concurrent assignments yield 1 success and 1 conflict"],
             difficulty="Intermediate",
         )
         self.assertEqual(spec.difficulty, "Intermediate")
-        self.assertEqual(len(spec.core_features), 3)
+        self.assertEqual(len(spec.walking_skeleton), 3)
+        self.assertIsInstance(spec.failure_modes[0], FailureMode)
 
 
 class TestDatabaseManager(unittest.TestCase):
@@ -190,14 +198,75 @@ class TestDatabaseManager(unittest.TestCase):
             title="E-Commerce Payment Orchestrator",
             role="Backend Engineer",
             tech_stack=["Go", "PostgreSQL", "Redis"],
-            file_path=r"C:\Users\MRmar\Desktop\Ideas\2026-10-10_backend_payment-orchestrator.md",
-            domain_industry="FinTech",
+            difficulty="Intermediate",
+            domain="FinTech",
+            spec_markdown="# E-Commerce Payment Orchestrator",
         )
         self.assertGreater(project_id, 0)
 
         projects = self.db.get_generated_projects(limit=10)
         self.assertEqual(len(projects), 1)
         self.assertEqual(projects[0]["title"], "E-Commerce Payment Orchestrator")
+        self.assertEqual(projects[0]["domain"], "FinTech")
+        self.assertTrue(self.db.has_generated_project("E-Commerce Payment Orchestrator"))
+        self.assertFalse(self.db.has_generated_project("Something Else"))
+
+    def test_local_schema_matches_shared_schema(self):
+        with sqlite3.connect(self.db_path) as conn:
+            cols = [row[1] for row in conn.execute("PRAGMA table_info(generated_projects)")]
+        self.assertEqual(
+            cols,
+            ["id", "title", "role", "difficulty", "domain", "tech_stack", "spec_markdown", "created_at"],
+        )
+
+
+class TestImportGraph(unittest.TestCase):
+    def test_storage_imports_standalone(self):
+        # storage.db -> extractor -> llm_extractor -> storage.db was a cycle that only
+        # surfaced when storage was imported first; a fresh interpreter catches it.
+        repo_root = Path(__file__).resolve().parent.parent
+        result = subprocess.run(
+            [sys.executable, "-c", "import src.storage.db"],
+            cwd=repo_root, capture_output=True, text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+
+class TestLegacyMigration(unittest.TestCase):
+    def test_legacy_generated_projects_table_is_rebuilt_with_data(self):
+        temp_dir = tempfile.mkdtemp(prefix="jhunt_migrate_test_")
+        try:
+            db_path = Path(temp_dir) / "market.db"
+            with sqlite3.connect(db_path) as conn:
+                conn.execute("""
+                    CREATE TABLE generated_projects (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        title TEXT NOT NULL,
+                        role TEXT NOT NULL,
+                        domain_industry TEXT,
+                        tech_stack TEXT,
+                        file_path TEXT NOT NULL,
+                        generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                conn.execute(
+                    "INSERT INTO generated_projects (title, role, domain_industry, tech_stack, file_path) "
+                    "VALUES ('Old Blueprint', 'Backend Engineer', 'FinTech', '[\"Go\"]', 'C:/old.md')"
+                )
+            conn.close()
+
+            db = DatabaseManager(db_path=db_path)
+            DatabaseManager(db_path=db_path)  # second open must be a no-op
+
+            projects = db.get_generated_projects()
+            self.assertEqual(len(projects), 1)
+            self.assertEqual(projects[0]["title"], "Old Blueprint")
+            self.assertEqual(projects[0]["domain"], "FinTech")
+            self.assertNotIn("file_path", projects[0])
+            db.record_generated_project(title="New", role="Backend Engineer", tech_stack=["Go"])
+            self.assertEqual(len(db.get_generated_projects()), 2)
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 class TestTursoClient(unittest.TestCase):
@@ -245,11 +314,24 @@ class TestTursoClient(unittest.TestCase):
         turso = TursoClient(client=mock_client)
         self.assertTrue(turso.is_available)
 
-        # Ensure table creation queries were executed
-        executed_sqls = [call[0][0] for call in mock_client.execute.call_args_list]
-        self.assertTrue(any("CREATE TABLE IF NOT EXISTS jobs" in sql for sql in executed_sqls))
-        self.assertTrue(any("CREATE TABLE IF NOT EXISTS skills_extracted" in sql for sql in executed_sqls))
-        self.assertTrue(any("CREATE TABLE IF NOT EXISTS generated_projects" in sql for sql in executed_sqls))
+        # The shared schema is applied in one round trip, identical to local SQLite
+        mock_client.batch.assert_called_once_with(list(SCHEMA_STATEMENTS))
+
+    def test_malformed_url_falls_back_instead_of_raising(self):
+        with patch("libsql_client.create_client_sync", side_effect=ValueError("unsupported URL scheme")):
+            turso = TursoClient(database_url="not-a-url", auth_token="x")
+        self.assertFalse(turso.is_available)
+        self.assertIsNone(turso.client)
+
+    def test_has_blueprint(self):
+        mock_client = MagicMock()
+        turso = TursoClient(client=mock_client)
+        mock_client.execute.return_value.rows = [(1,)]
+        self.assertTrue(turso.has_blueprint("Idempotent PromptPay Webhook Processor"))
+        mock_client.execute.return_value.rows = []
+        self.assertFalse(turso.has_blueprint("Unknown"))
+        mock_client.execute.side_effect = Exception("network down")
+        self.assertFalse(turso.has_blueprint("Unknown"))
 
     def test_sync_jobs_with_mock(self):
         mock_client = MagicMock()
@@ -277,17 +359,26 @@ class TestTursoClient(unittest.TestCase):
             },
         ]
 
+        mock_client.batch.reset_mock()
         synced = turso.sync_jobs(jobs)
         self.assertEqual(synced, 2)
-        self.assertEqual(mock_client.execute.call_count, 2)
+        # One round trip for the whole scrape, not one per job
+        mock_client.batch.assert_called_once()
+        mock_client.execute.assert_not_called()
 
-        # Inspect first executed call
-        first_call = mock_client.execute.call_args_list[0]
-        sql, params = first_call[0][0], first_call[0][1]
+        stmts = mock_client.batch.call_args[0][0]
+        self.assertEqual(len(stmts), 2)
+        sql, params = stmts[0]
         self.assertIn("INSERT OR IGNORE INTO jobs", sql)
         self.assertEqual(params[0], "job_cloud_01")
         self.assertEqual(params[1], "Cloud Engineer")
         self.assertEqual(params[2], "True Digital")
+
+    def test_sync_jobs_batch_failure_returns_zero(self):
+        mock_client = MagicMock()
+        turso = TursoClient(client=mock_client)
+        mock_client.batch.side_effect = Exception("network down")
+        self.assertEqual(turso.sync_jobs([{"id": "j1", "title": "Dev", "company": "Co", "url": "u"}]), 0)
 
     def test_sync_extracted_skills_with_mock(self):
         mock_client = MagicMock()
@@ -305,14 +396,14 @@ class TestTursoClient(unittest.TestCase):
             tools=["Git", "Kafka"],
         )
 
+        mock_client.batch.reset_mock()
         synced_single = turso.sync_extracted_skills({
             "job_id": "job_cloud_02",
             "extracted": extracted,
         })
         self.assertEqual(synced_single, 1)
 
-        call_args = mock_client.execute.call_args[0]
-        sql, params = call_args[0], call_args[1]
+        sql, params = mock_client.batch.call_args[0][0][0]
         self.assertIn("INSERT INTO skills_extracted", sql)
         self.assertEqual(params[0], "job_cloud_02")
         self.assertEqual(params[1], "Mid")
@@ -320,7 +411,7 @@ class TestTursoClient(unittest.TestCase):
         self.assertIn("PostgreSQL", params[5])
 
         # 2. Sync via list of raw skill dicts
-        mock_client.execute.reset_mock()
+        mock_client.batch.reset_mock()
         raw_skills = [
             {
                 "job_id": "job_cloud_03",
@@ -335,7 +426,7 @@ class TestTursoClient(unittest.TestCase):
         ]
         synced_batch = turso.sync_extracted_skills(raw_skills)
         self.assertEqual(synced_batch, 1)
-        self.assertEqual(mock_client.execute.call_count, 1)
+        mock_client.batch.assert_called_once()
 
     def test_sync_blueprint_with_mock(self):
         mock_client = MagicMock()
@@ -396,11 +487,14 @@ class TestTursoExporterIntegration(unittest.TestCase):
         spec = ProjectIdeaSpec(
             title="Flash Sale Inventory Locking Engine",
             domain_industry="E-Commerce",
+            core_problem="Never oversell stock when many buyers reserve the last items at once.",
             target_tech_stack=["Python", "FastAPI", "Redis", "PostgreSQL"],
-            architecture_overview="Distributed locking architecture with Redis Redlock and outbox pattern",
-            core_features=["Inventory allocation", "Order queue", "Distributed lock"],
+            system_boundary="One FastAPI service, PostgreSQL, and Redis for reservations.",
+            walking_skeleton=["Reserve an item", "Expire unpaid reservations"],
+            contracts="`POST /reservations` returns 201 or 409.",
             database_schema="PostgreSQL schemas for items and orders",
-            engineering_challenges=["High concurrency race conditions", "Cache stampede"],
+            failure_modes=[{"failure": "Concurrent reservations", "recovery": "Conditional decrement; loser gets 409"}],
+            verification=["Locust: reserved count never exceeds stock"],
             difficulty="Intermediate",
         )
 

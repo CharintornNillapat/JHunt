@@ -4,26 +4,45 @@ Unit tests for text sanitization and LLM extraction pipeline.
 Verifies HTML stripping, boilerplate pruning, mock Gemini extraction,
 exponential backoff retry behavior, and batch queue processing.
 """
+import json
 import shutil
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from src.extractor.schemas import ExtractedJob
+from src.extractor.gemini_client import (
+    CIRCUIT_BREAK_AFTER,
+    DailyQuotaExhaustedError,
+    is_daily_quota_exhausted,
+)
+from src.extractor.schemas import BatchExtractedJob, ExtractedJob
 from src.extractor.text_sanitizer import (
     build_sanitized_job_prompt,
     clean_html,
     strip_boilerplate,
 )
 from src.extractor.llm_extractor import (
-    DailyQuotaExhaustedError,
+    BATCH_SIZE,
     GeminiExtractor,
-    is_daily_quota_exhausted,
     is_tech_job,
     process_unprocessed_jobs,
 )
 from src.storage.db import DatabaseManager
+
+
+def _job(i, title="Backend Python Developer", company=None):
+    return {
+        "id": f"job_{i:03d}",
+        "title": title,
+        "company": company or f"Company {i}",
+        "url": f"https://example.com/{i}",
+        "teaser": "Python and FastAPI backend role",
+    }
+
+
+def _answer(idx, title="Backend Python Developer", company="Acme", **skills):
+    return BatchExtractedJob(id=idx, job_title=title, company=company, experience_level="Junior", **skills)
 
 
 class TestTextSanitizer(unittest.TestCase):
@@ -105,174 +124,135 @@ class TestGeminiExtractor(unittest.TestCase):
             client=self.mock_client,
         )
 
-    def test_extract_job_success_via_parsed(self):
-        expected_job = ExtractedJob(
-            job_title="Backend Developer",
-            company="Acme Corp",
-            experience_level="Junior",
-            must_have_skills=["Python", "FastAPI"],
-            databases=["PostgreSQL"],
-            cloud_infra=["Docker"],
-        )
-        mock_response = MagicMock()
-        mock_response.parsed = expected_job
-        self.mock_client.models.generate_content.return_value = mock_response
+    def _respond(self, answers):
+        response = MagicMock()
+        response.parsed = answers
+        return response
 
-        result = self.extractor.extract_job(
-            job_text="Backend Developer job description text",
-            fallback_title="Fallback Title",
-            fallback_company="Fallback Company",
-        )
-        self.assertIsNotNone(result)
-        self.assertEqual(result.job_title, "Backend Developer")
-        self.assertIn("Python", result.must_have_skills)
+    def test_extract_batch_success_via_parsed(self):
+        jobs = [_job(0), _job(1, title="Frontend React Developer")]
+        self.mock_client.models.generate_content.return_value = self._respond([
+            _answer(0, must_have_skills=["Python", "FastAPI"], databases=["PostgreSQL"]),
+            _answer(1, title="Frontend React Developer", must_have_skills=["TypeScript", "React"]),
+        ])
 
-    def test_extract_job_success_via_json_text(self):
-        json_output = """{
+        results = self.extractor.extract_batch(jobs)
+
+        self.assertEqual(set(results), {"job_000", "job_001"})
+        self.assertIn("FastAPI", results["job_000"].must_have_skills)
+        self.assertIn("React", results["job_001"].must_have_skills)
+        self.assertIsInstance(results["job_000"], ExtractedJob)
+        self.assertEqual(self.mock_client.models.generate_content.call_count, 1)
+
+    def test_extract_batch_success_via_json_text(self):
+        response = MagicMock()
+        response.parsed = None
+        response.text = json.dumps([{
+            "id": 0,
             "job_title": "Data Engineer",
             "company": "FinTech Bangkok",
             "experience_level": "Mid",
             "must_have_skills": ["Python", "Apache Spark"],
-            "nice_to_have_skills": ["Kafka"],
-            "frameworks": [],
             "databases": ["PostgreSQL", "BigQuery"],
-            "cloud_infra": ["GCP"],
-            "tools": ["Git", "Airflow"]
-        }"""
-        mock_response = MagicMock()
-        mock_response.parsed = None
-        mock_response.text = json_output
-        self.mock_client.models.generate_content.return_value = mock_response
+            "tools": ["Git", "Airflow"],
+        }])
+        self.mock_client.models.generate_content.return_value = response
 
-        result = self.extractor.extract_job(job_text="Data engineer JD")
-        self.assertIsNotNone(result)
-        self.assertEqual(result.job_title, "Data Engineer")
-        self.assertEqual(result.experience_level, "Mid")
-        self.assertIn("BigQuery", result.databases)
-        self.assertIn("Airflow", result.tools)
+        results = self.extractor.extract_batch([_job(0, title="Data Engineer")])
 
-    def test_extract_job_retry_on_rate_limit(self):
-        expected_job = ExtractedJob(
-            job_title="AI Engineer",
-            company="AI Lab",
-            experience_level="Junior",
-            must_have_skills=["Python", "PyTorch"],
-        )
-        success_response = MagicMock()
-        success_response.parsed = expected_job
+        self.assertEqual(results["job_000"].experience_level, "Mid")
+        self.assertIn("BigQuery", results["job_000"].databases)
 
-        # First call fails with 429 RESOURCE_EXHAUSTED, second succeeds
+    def test_extract_batch_sends_one_json_payload(self):
+        jobs = [_job(i) for i in range(3)]
+        self.mock_client.models.generate_content.return_value = self._respond([])
+
+        self.extractor.extract_batch(jobs)
+
+        sent = json.loads(self.mock_client.models.generate_content.call_args[1]["contents"])
+        self.assertEqual([item["id"] for item in sent], [0, 1, 2])
+        self.assertEqual(set(sent[0]), {"id", "title", "company", "description"})
+        self.assertIn("FastAPI", sent[0]["description"])
+
+    def test_extract_batch_discards_unknown_and_duplicate_ids(self):
+        jobs = [_job(0), _job(1)]
+        self.mock_client.models.generate_content.return_value = self._respond([
+            _answer(0, must_have_skills=["Go"]),
+            _answer(0, must_have_skills=["Rust"]),  # duplicate: first answer wins
+            _answer(7, must_have_skills=["Java"]),  # not in the batch
+        ])
+
+        results = self.extractor.extract_batch(jobs)
+
+        self.assertEqual(list(results), ["job_000"])
+        self.assertEqual(results["job_000"].must_have_skills, ["Go"])
+
+    def test_extract_batch_fills_missing_title_and_company(self):
+        self.mock_client.models.generate_content.return_value = self._respond([_answer(0, title="", company="")])
+
+        results = self.extractor.extract_batch([_job(0, title="Python Developer", company="Siam Soft")])
+
+        self.assertEqual(results["job_000"].job_title, "Python Developer")
+        self.assertEqual(results["job_000"].company, "Siam Soft")
+
+    def test_extract_batch_retry_on_rate_limit(self):
         self.mock_client.models.generate_content.side_effect = [
             Exception("429 RESOURCE_EXHAUSTED: Rate limit exceeded"),
-            success_response,
+            self._respond([_answer(0, must_have_skills=["PyTorch"])]),
         ]
 
         with patch("time.sleep"):  # Mock sleep so tests run instantly
-            result = self.extractor.extract_job(job_text="AI job description")
+            results = self.extractor.extract_batch([_job(0)])
 
-        self.assertIsNotNone(result)
-        self.assertEqual(result.job_title, "AI Engineer")
+        self.assertIn("job_000", results)
         self.assertEqual(self.mock_client.models.generate_content.call_count, 2)
 
-    def test_extract_job_fails_safely_when_retries_exhausted(self):
+    def test_extract_batch_returns_empty_when_retries_exhausted(self):
         self.mock_client.models.generate_content.side_effect = Exception("503 Service Unavailable")
 
         with patch("time.sleep"):
-            result = self.extractor.extract_job(job_text="Any job text")
+            results = self.extractor.extract_batch([_job(0)])
 
-        self.assertIsNone(result)
+        self.assertEqual(results, {})
 
-    def test_extract_job_503_fallback_to_gemini_2_5_flash(self):
-        expected_job = ExtractedJob(
-            job_title="DevOps Engineer",
-            company="Cloud Corp",
-            experience_level="Mid",
-            must_have_skills=["Terraform", "Kubernetes"],
-        )
-        success_response = MagicMock()
-        success_response.parsed = expected_job
-
-        # First 2 attempts fail with 503, attempt 3 succeeds with fallback model
+    def test_extract_batch_503_fallback_to_gemini_2_5_flash(self):
         self.mock_client.models.generate_content.side_effect = [
             Exception("503 UNAVAILABLE: Model is currently experiencing high demand"),
             Exception("503 UNAVAILABLE: Model is currently experiencing high demand"),
-            success_response,
+            self._respond([_answer(0, must_have_skills=["Terraform"])]),
         ]
 
         with patch("time.sleep") as mock_sleep:
-            result = self.extractor.extract_job(job_text="DevOps JD")
+            results = self.extractor.extract_batch([_job(0)])
 
-        self.assertIsNotNone(result)
-        self.assertEqual(result.job_title, "DevOps Engineer")
-        self.assertEqual(self.mock_client.models.generate_content.call_count, 3)
-
+        self.assertIn("job_000", results)
         calls = self.mock_client.models.generate_content.call_args_list
-        # Attempt 1 and 2 used gemini-3.8-flash
-        self.assertEqual(calls[0][1]["model"], "gemini-3.8-flash")
-        self.assertEqual(calls[1][1]["model"], "gemini-3.8-flash")
-        # Attempt 3 fell back to gemini-2.5-flash
-        self.assertEqual(calls[2][1]["model"], "gemini-2.5-flash")
-
-        # Sleep was called with jittered backoff
+        self.assertEqual([c[1]["model"] for c in calls], ["gemini-3.8-flash", "gemini-3.8-flash", "gemini-2.5-flash"])
         self.assertEqual(mock_sleep.call_count, 2)
 
-    def test_batch_process_unprocessed_jobs(self):
-        temp_dir = tempfile.mkdtemp(prefix="jhunt_batch_test_")
-        try:
-            db_path = Path(temp_dir) / "market.db"
-            db = DatabaseManager(db_path=db_path)
+    def test_extract_batch_fails_fast_on_daily_quota(self):
+        self.mock_client.models.generate_content.side_effect = Exception(
+            "429 Quota exceeded for quota metric 'GenerateRequestsPerDayPerProjectPerModel'"
+        )
 
-            # Insert two jobs
-            db.save_job({
-                "id": "batch_001",
-                "title": "Backend Python Dev",
-                "company": "Company A",
-                "url": "https://example.com/1",
-                "teaser": "Python and FastAPI backend role",
-            })
-            db.save_job({
-                "id": "batch_002",
-                "title": "Frontend React Dev",
-                "company": "Company B",
-                "url": "https://example.com/2",
-                "teaser": "React and TypeScript role",
-            })
+        with self.assertRaises(DailyQuotaExhaustedError):
+            self.extractor.extract_batch([_job(0)])
 
-            # Mock extractor to return ExtractedJob
-            mock_extractor = MagicMock(spec=GeminiExtractor)
-            mock_extractor.extract_job.side_effect = [
-                ExtractedJob(
-                    job_title="Backend Python Dev",
-                    company="Company A",
-                    experience_level="Junior",
-                    must_have_skills=["Python", "FastAPI"],
-                    databases=["PostgreSQL"],
-                ),
-                ExtractedJob(
-                    job_title="Frontend React Dev",
-                    company="Company B",
-                    experience_level="Junior",
-                    must_have_skills=["TypeScript", "React"],
-                ),
-            ]
+        # Must not retry when daily quota is exhausted
+        self.assertEqual(self.mock_client.models.generate_content.call_count, 1)
 
-            processed_count = process_unprocessed_jobs(db=db, extractor=mock_extractor)
-            self.assertEqual(processed_count, 2)
+    def test_circuit_opens_after_consecutive_failed_calls(self):
+        self.mock_client.models.generate_content.side_effect = Exception("503 Service Unavailable")
 
-            # Queue should now be empty
-            unprocessed_remaining = db.get_unprocessed_jobs()
-            self.assertEqual(len(unprocessed_remaining), 0)
+        with patch("time.sleep"):
+            for _ in range(CIRCUIT_BREAK_AFTER):
+                self.assertEqual(self.extractor.extract_batch([_job(0)]), {})
+            calls_before = self.mock_client.models.generate_content.call_count
+            with self.assertRaises(DailyQuotaExhaustedError):
+                self.extractor.extract_batch([_job(0)])
 
-            # Extracted skills should be saved in DB
-            skills1 = db.get_extracted_skills("batch_001")
-            self.assertIsNotNone(skills1)
-            self.assertIn("Python", skills1.must_have_skills)
-
-            skills2 = db.get_extracted_skills("batch_002")
-            self.assertIsNotNone(skills2)
-            self.assertIn("TypeScript", skills2.must_have_skills)
-        finally:
-            shutil.rmtree(temp_dir, ignore_errors=True)
+        # The open circuit refuses before making a request
+        self.assertEqual(self.mock_client.models.generate_content.call_count, calls_before)
 
     def test_model_default_and_custom_override(self):
         with patch.dict("os.environ", {}, clear=True):
@@ -312,73 +292,108 @@ class TestGeminiExtractor(unittest.TestCase):
         self.assertFalse(is_daily_quota_exhausted("429 RESOURCE_EXHAUSTED: Rate limit exceeded. Retry in 10s"))
         self.assertFalse(is_daily_quota_exhausted("503 Service Unavailable"))
 
-    def test_extract_job_fails_fast_on_daily_quota(self):
-        self.mock_client.models.generate_content.side_effect = Exception(
-            "429 Quota exceeded for quota metric 'GenerateRequestsPerDayPerProjectPerModel'"
-        )
 
-        with self.assertRaises(DailyQuotaExhaustedError):
-            self.extractor.extract_job(job_text="Backend Python Developer")
+class TestBatchQueueProcessing(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.mkdtemp(prefix="jhunt_batch_test_")
+        self.db = DatabaseManager(db_path=Path(self.temp_dir) / "market.db")
+        self.extractor = MagicMock(spec=GeminiExtractor)
 
-        # Must not retry when daily quota is exhausted
-        self.assertEqual(self.mock_client.models.generate_content.call_count, 1)
+    def tearDown(self):
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def _seed(self, jobs):
+        for job in jobs:
+            self.db.save_job(job)
+        return jobs
+
+    @staticmethod
+    def _answer_all(batch):
+        return {
+            job["id"]: ExtractedJob(job_title=job["title"], company=job["company"], must_have_skills=["Python"])
+            for job in batch
+        }
+
+    def test_batch_process_unprocessed_jobs(self):
+        self._seed([_job(0), _job(1, title="Frontend React Developer")])
+        self.extractor.extract_batch.side_effect = self._answer_all
+
+        processed = process_unprocessed_jobs(db=self.db, extractor=self.extractor)
+
+        self.assertEqual(processed, 2)
+        self.assertEqual(self.extractor.extract_batch.call_count, 1)
+        self.assertEqual(self.db.get_unprocessed_jobs(), [])
+        self.assertIn("Python", self.db.get_extracted_skills("job_000").must_have_skills)
+
+    def test_thirty_jobs_cost_two_requests(self):
+        self._seed([_job(i) for i in range(30)])
+        self.extractor.extract_batch.side_effect = self._answer_all
+
+        processed = process_unprocessed_jobs(db=self.db, extractor=self.extractor, limit=30)
+
+        self.assertEqual(processed, 30)
+        self.assertEqual(self.extractor.extract_batch.call_count, 2)
+        sizes = [len(c[0][0]) for c in self.extractor.extract_batch.call_args_list]
+        self.assertEqual(sizes, [BATCH_SIZE, BATCH_SIZE])
+
+    def test_limit_caps_jobs_sent(self):
+        self._seed([_job(i) for i in range(20)])
+        self.extractor.extract_batch.side_effect = self._answer_all
+
+        processed = process_unprocessed_jobs(db=self.db, extractor=self.extractor, limit=10)
+
+        self.assertEqual(processed, 10)
+        self.assertEqual(len(self.db.get_unprocessed_jobs()), 10)
+
+    def test_unanswered_jobs_stay_queued(self):
+        self._seed([_job(0), _job(1)])
+        self.extractor.extract_batch.side_effect = lambda batch: self._answer_all(batch[:1])
+
+        processed = process_unprocessed_jobs(db=self.db, extractor=self.extractor)
+
+        self.assertEqual(processed, 1)
+        self.assertEqual([j["id"] for j in self.db.get_unprocessed_jobs()], ["job_001"])
 
     def test_batch_process_stops_gracefully_on_daily_quota(self):
-        temp_dir = tempfile.mkdtemp(prefix="jhunt_quota_test_")
-        try:
-            db_path = Path(temp_dir) / "market.db"
-            db = DatabaseManager(db_path=db_path)
+        self._seed([_job(i) for i in range(20)])
+        self.extractor.extract_batch.side_effect = [
+            self._answer_all([_job(i) for i in range(BATCH_SIZE)]),
+            DailyQuotaExhaustedError("Daily quota exhausted"),
+        ]
 
-            db.save_job({"id": "q_001", "title": "Developer 1", "company": "Co 1", "url": "https://example.com/1"})
-            db.save_job({"id": "q_002", "title": "Developer 2", "company": "Co 2", "url": "https://example.com/2"})
-            db.save_job({"id": "q_003", "title": "Developer 3", "company": "Co 3", "url": "https://example.com/3"})
+        processed = process_unprocessed_jobs(db=self.db, extractor=self.extractor)
 
-            mock_extractor = MagicMock(spec=GeminiExtractor)
-            mock_extractor.extract_job.side_effect = [
-                ExtractedJob(job_title="Developer 1", company="Co 1", experience_level="Mid", must_have_skills=["Go"]),
-                DailyQuotaExhaustedError("Daily quota exhausted"),
-            ]
-
-            processed = process_unprocessed_jobs(db=db, extractor=mock_extractor)
-            self.assertEqual(processed, 1)
-            # Only first two jobs were attempted (1 succeeded, 2 aborted, 3 untouched)
-            self.assertEqual(mock_extractor.extract_job.call_count, 2)
-        finally:
-            shutil.rmtree(temp_dir, ignore_errors=True)
+        self.assertEqual(processed, BATCH_SIZE)
+        self.assertEqual(self.extractor.extract_batch.call_count, 2)
+        self.assertEqual(len(self.db.get_unprocessed_jobs()), 20 - BATCH_SIZE)
 
     def test_batch_process_skips_non_tech_jobs(self):
-        temp_dir = tempfile.mkdtemp(prefix="jhunt_nontech_test_")
-        try:
-            db_path = Path(temp_dir) / "market.db"
-            db = DatabaseManager(db_path=db_path)
+        self._seed([
+            {"id": "nt_001", "title": "Sales Representative", "company": "Sales Co", "url": "https://example.com/nt", "teaser": "Cold calls"},
+            {"id": "nt_002", "title": "Python Developer", "company": "Tech Co", "url": "https://example.com/t", "teaser": "Backend code"},
+        ])
+        self.extractor.extract_batch.side_effect = self._answer_all
 
-            db.save_job({"id": "nt_001", "title": "Sales Representative", "company": "Sales Co", "url": "https://example.com/nt", "teaser": "Cold calls"})
-            db.save_job({"id": "nt_002", "title": "Python Developer", "company": "Tech Co", "url": "https://example.com/t", "teaser": "Backend code"})
+        processed = process_unprocessed_jobs(db=self.db, extractor=self.extractor)
 
-            mock_extractor = MagicMock(spec=GeminiExtractor)
-            mock_extractor.extract_job.return_value = ExtractedJob(
-                job_title="Python Developer",
-                company="Tech Co",
-                experience_level="Junior",
-                must_have_skills=["Python"],
-            )
+        self.assertEqual(processed, 1)
+        sent = self.extractor.extract_batch.call_args[0][0]
+        self.assertEqual([j["id"] for j in sent], ["nt_002"])
+        self.assertEqual(self.db.get_unprocessed_jobs(), [])
 
-            processed = process_unprocessed_jobs(db=db, extractor=mock_extractor)
-            self.assertEqual(processed, 1)
-            # Extractor only called for the tech job
-            self.assertEqual(mock_extractor.extract_job.call_count, 1)
+        nt_skills = self.db.get_extracted_skills("nt_001")
+        self.assertEqual(nt_skills.experience_level, "Non-Tech")
+        self.assertEqual(nt_skills.must_have_skills, [])
 
-            # Both jobs should now be marked processed in DB
-            remaining = db.get_unprocessed_jobs()
-            self.assertEqual(len(remaining), 0)
+    def test_extracted_skills_are_synced_to_turso_in_one_call(self):
+        self._seed([_job(0), _job(1)])
+        self.extractor.extract_batch.side_effect = self._answer_all
+        turso = MagicMock()
 
-            # Non-tech job is saved with experience_level 'Non-Tech'
-            nt_skills = db.get_extracted_skills("nt_001")
-            self.assertIsNotNone(nt_skills)
-            self.assertEqual(nt_skills.experience_level, "Non-Tech")
-            self.assertEqual(nt_skills.must_have_skills, [])
-        finally:
-            shutil.rmtree(temp_dir, ignore_errors=True)
+        process_unprocessed_jobs(db=self.db, extractor=self.extractor, turso=turso)
+
+        turso.sync_extracted_skills.assert_called_once()
+        self.assertEqual(len(turso.sync_extracted_skills.call_args[0][0]), 2)
 
 
 if __name__ == "__main__":

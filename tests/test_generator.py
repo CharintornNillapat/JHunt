@@ -1,21 +1,44 @@
 # tests/test_generator.py
 """
-Unit tests for the portfolio ideation engine, Jinja2 markdown templating,
+Unit tests for the portfolio ideation engine, markdown rendering,
 and file exporting layer.
 Verifies prompt synthesis, schema validation, frontmatter generation,
-filesystem writing, and database registration.
+filesystem writing, database registration, and fallback deduplication.
 """
+import re
 import shutil
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from src.extractor.schemas import ProjectIdeaSpec
-from src.generator.ideation_engine import IdeationEngine
+from src.extractor.schemas import FailureMode, ProjectIdeaSpec
+from src.generator.ideation_engine import FALLBACK_TITLES, IdeationEngine
 from src.generator.markdown_exporter import MarkdownExporter, _slugify
 from src.generator import generate_and_export_role_blueprint
 from src.storage.db import DatabaseManager
+
+
+def make_spec(**overrides) -> ProjectIdeaSpec:
+    fields = dict(
+        title="Real-Time PromptPay Webhook & Settlement Gateway",
+        domain_industry="FinTech & Digital Payments (Thailand)",
+        core_problem="Credit each PromptPay payment exactly once despite retried webhooks.",
+        target_tech_stack=["Python", "FastAPI", "PostgreSQL", "Docker"],
+        system_boundary="One FastAPI service and one PostgreSQL database.",
+        walking_skeleton=[
+            "POST /webhooks/promptpay stores the event",
+            "Idempotent webhook signature verification",
+        ],
+        contracts="`POST /webhooks/promptpay` returns 200 `{status}`.",
+        database_schema="`ledger_entries(event_id UNIQUE, amount_satang)`",
+        failure_modes=[FailureMode(failure="Duplicate delivery", recovery="ON CONFLICT DO NOTHING")],
+        verification=["pytest: 100 duplicate deliveries yield exactly 1 ledger row"],
+        out_of_scope=["Refunds"],
+        difficulty="Intermediate",
+    )
+    fields.update(overrides)
+    return ProjectIdeaSpec(**fields)
 
 
 class TestMarkdownExporterAndTemplate(unittest.TestCase):
@@ -25,23 +48,7 @@ class TestMarkdownExporterAndTemplate(unittest.TestCase):
         self.db_path = Path(self.temp_dir) / "test_market.db"
         self.db = DatabaseManager(db_path=self.db_path)
         self.exporter = MarkdownExporter(export_dir=self.export_dir, db=self.db)
-
-        self.sample_spec = ProjectIdeaSpec(
-            title="Real-Time PromptPay Webhook & Settlement Gateway",
-            domain_industry="FinTech & Digital Payments (Thailand)",
-            target_tech_stack=["Python", "FastAPI", "PostgreSQL", "Redis", "Docker"],
-            architecture_overview="Microservice architecture processing inbound banking webhooks with idempotency keys.",
-            core_features=[
-                "Idempotent webhook signature verification",
-                "Double-entry ledger reconciliation worker",
-            ],
-            database_schema="PostgreSQL `ledger` table with ACID constraints and unique idempotency keys.",
-            engineering_challenges=[
-                "Preventing double-spend under concurrent duplicate webhooks",
-                "Sub-50ms acknowledgement latency",
-            ],
-            difficulty="Advanced",
-        )
+        self.sample_spec = make_spec()
 
     def tearDown(self):
         shutil.rmtree(self.temp_dir, ignore_errors=True)
@@ -62,20 +69,36 @@ class TestMarkdownExporterAndTemplate(unittest.TestCase):
         self.assertTrue(rendered.startswith("---"))
         self.assertIn('title: "Real-Time PromptPay Webhook & Settlement Gateway"', rendered)
         self.assertIn('role: "Backend Engineer"', rendered)
-        self.assertIn('difficulty: "Advanced"', rendered)
+        self.assertIn('difficulty: "Intermediate"', rendered)
         self.assertIn('domain_industry: "FinTech & Digital Payments (Thailand)"', rendered)
         self.assertIn('- "FastAPI"', rendered)
         self.assertIn("- portfolio-project", rendered)
 
-        # Markdown Body assertions
+        # Markdown body: buildable sections, rendered from the spec only
         self.assertIn("# Real-Time PromptPay Webhook & Settlement Gateway", rendered)
-        self.assertIn("## 1. Executive Summary & Business Context", rendered)
-        self.assertIn("## 2. System Architecture & Data Flow", rendered)
-        self.assertIn("## 3. Core Feature Requirements", rendered)
-        self.assertIn("## 4. Database Schema Proposal & Storage Design", rendered)
-        self.assertIn("## 5. Key Engineering Challenges (Portfolio Highlights)", rendered)
-        self.assertIn("## 6. Recommended Portfolio Deliverables", rendered)
-        self.assertIn("Idempotent webhook signature verification", rendered)
+        for heading in (
+            "## Core Problem",
+            "## System Boundary",
+            "## Walking Skeleton",
+            "## Contracts",
+            "## Data Model",
+            "## Failure Modes & Recovery",
+            "## Local Verification",
+            "## Out of Scope",
+        ):
+            self.assertIn(heading, rendered)
+        self.assertIn("1. POST /webhooks/promptpay stores the event", rendered)
+        self.assertIn("- **Duplicate delivery.** ON CONFLICT DO NOTHING", rendered)
+        self.assertIn("- [ ] pytest: 100 duplicate deliveries yield exactly 1 ledger row", rendered)
+        self.assertNotIn("Complete implementation of", rendered)
+
+    def test_frontmatter_survives_quotes_in_llm_output(self):
+        rendered = self.exporter.render_spec(
+            spec=make_spec(title='Ledger "Exactly-Once": Engine'),
+            target_role="Backend Engineer",
+            generated_date="2026-10-10",
+        )
+        self.assertIn('title: "Ledger \\"Exactly-Once\\": Engine"', rendered)
 
     def test_export_writes_file_and_records_in_db(self):
         exported_path = self.exporter.export(
@@ -88,17 +111,35 @@ class TestMarkdownExporterAndTemplate(unittest.TestCase):
         self.assertTrue(exported_path.exists())
         self.assertTrue(exported_path.is_file())
         self.assertIn("2026-10-10_backend-engineer_real-time-promptpay", exported_path.name)
+        self.assertIn("PromptPay Webhook", exported_path.read_text(encoding="utf-8"))
 
-        with open(exported_path, "r", encoding="utf-8") as f:
-            content = f.read()
-        self.assertIn("PromptPay Webhook", content)
-
-        # Verify record in SQLite database
+        # Verify record in SQLite database (same columns as Turso)
         records = self.db.get_generated_projects(limit=10)
         self.assertEqual(len(records), 1)
         self.assertEqual(records[0]["title"], self.sample_spec.title)
         self.assertEqual(records[0]["role"], "Backend Engineer")
-        self.assertEqual(records[0]["file_path"], str(exported_path))
+        self.assertEqual(records[0]["domain"], self.sample_spec.domain_industry)
+        self.assertEqual(records[0]["difficulty"], "Intermediate")
+        self.assertIn("## Core Problem", records[0]["spec_markdown"])
+
+    def test_export_skips_already_saved_spec_when_asked(self):
+        first = self.exporter.export(spec=self.sample_spec, target_role="Backend Engineer", skip_if_saved=True)
+        second = self.exporter.export(spec=self.sample_spec, target_role="Backend Engineer", skip_if_saved=True)
+
+        self.assertIsNotNone(first)
+        self.assertIsNone(second)
+        self.assertEqual(len(self.db.get_generated_projects()), 1)
+
+    def test_export_checks_turso_before_saving_fallback(self):
+        turso = MagicMock()
+        turso.is_available = True
+        turso.has_blueprint.return_value = True
+        exporter = MarkdownExporter(export_dir=self.export_dir, db=self.db, turso=turso)
+
+        result = exporter.export(spec=self.sample_spec, target_role="Backend Engineer", skip_if_saved=True)
+
+        self.assertIsNone(result)
+        turso.sync_blueprint.assert_not_called()
 
 
 class TestIdeationEngine(unittest.TestCase):
@@ -112,17 +153,10 @@ class TestIdeationEngine(unittest.TestCase):
         )
 
     def test_generate_project_spec_success_parsed(self):
-        expected_spec = ProjectIdeaSpec(
-            title="Distributed Flash-Sale Inventory Locking Engine",
-            domain_industry="E-Commerce (Thailand)",
-            target_tech_stack=["Go", "Redis", "PostgreSQL", "Docker"],
-            architecture_overview="High-concurrency ticket locking engine.",
-            core_features=["Atomic inventory deduction"],
-            database_schema="PostgreSQL tickets table",
-            engineering_challenges=["Cache stampede prevention"],
-            difficulty="Advanced",
+        expected_spec = make_spec(
+            title="Flash-Sale Inventory Reservation Engine",
+            target_tech_stack=["Go", "Redis", "PostgreSQL"],
         )
-
         mock_resp = MagicMock()
         mock_resp.parsed = expected_spec
         self.mock_client.models.generate_content.return_value = mock_resp
@@ -131,48 +165,36 @@ class TestIdeationEngine(unittest.TestCase):
             target_role="Backend Engineer",
             tech_stack=["Go", "PostgreSQL", "Redis"],
         )
-        self.assertIsNotNone(result)
-        self.assertEqual(result.title, "Distributed Flash-Sale Inventory Locking Engine")
-        self.assertIn("Go", result.target_tech_stack)
+        self.assertEqual(result.title, "Flash-Sale Inventory Reservation Engine")
+        self.assertFalse(IdeationEngine.is_fallback(result))
+
+    def test_model_chosen_stack_is_not_re_merged_with_market_stack(self):
+        mock_resp = MagicMock()
+        mock_resp.parsed = make_spec(target_tech_stack=["Go", "PostgreSQL"])
+        self.mock_client.models.generate_content.return_value = mock_resp
+
+        result = self.engine.generate_project_spec(
+            target_role="Backend Engineer",
+            tech_stack=["Go", "PostgreSQL", "Kafka", "Kubernetes", "Redis"],
+        )
+        self.assertEqual(result.target_tech_stack, ["Go", "PostgreSQL"])
 
     def test_generate_project_spec_success_json_text(self):
-        json_spec = """{
-            "title": "Real-Time Telemetry Ingestion Pipeline",
-            "domain_industry": "Logistics & Fleet Telemetry",
-            "target_tech_stack": ["Python", "Apache Spark", "Airflow", "Kafka"],
-            "architecture_overview": "Streaming fleet ingestion engine",
-            "core_features": ["Sub-second courier tracking"],
-            "database_schema": "GeoJSON coordinate storage",
-            "engineering_challenges": ["Out-of-order packet reconciliation"],
-            "difficulty": "Advanced"
-        }"""
         mock_resp = MagicMock()
         mock_resp.parsed = None
-        mock_resp.text = json_spec
+        mock_resp.text = make_spec(title="Telemetry Ingestion with Dead Letters").model_dump_json()
         self.mock_client.models.generate_content.return_value = mock_resp
 
         result = self.engine.generate_project_spec(
             target_role="Data Engineer / Data Analyst",
-            tech_stack=["Python", "Spark", "Airflow"],
+            tech_stack=["Python", "PostgreSQL"],
         )
-        self.assertIsNotNone(result)
-        self.assertEqual(result.title, "Real-Time Telemetry Ingestion Pipeline")
-        self.assertEqual(result.difficulty, "Advanced")
+        self.assertEqual(result.title, "Telemetry Ingestion with Dead Letters")
+        self.assertEqual(result.failure_modes[0].failure, "Duplicate delivery")
 
     def test_generate_project_spec_retry_on_transient_error(self):
-        expected_spec = ProjectIdeaSpec(
-            title="Real-time OCR & ID Document Verification API",
-            domain_industry="Digital Banking / e-KYC",
-            target_tech_stack=["Python", "PyTorch", "FastAPI", "Docker"],
-            architecture_overview="Asynchronous OCR engine.",
-            core_features=["National ID extraction"],
-            database_schema="Encrypted audit records",
-            engineering_challenges=["GPU batch inference latency"],
-            difficulty="Advanced",
-        )
         mock_resp = MagicMock()
-        mock_resp.parsed = expected_spec
-
+        mock_resp.parsed = make_spec(title="ID Document OCR Queue")
         self.mock_client.models.generate_content.side_effect = [
             Exception("429 RESOURCE_EXHAUSTED"),
             mock_resp,
@@ -184,9 +206,18 @@ class TestIdeationEngine(unittest.TestCase):
                 tech_stack=["Python", "PyTorch", "FastAPI"],
             )
 
-        self.assertIsNotNone(result)
-        self.assertEqual(result.title, "Real-time OCR & ID Document Verification API")
+        self.assertEqual(result.title, "ID Document OCR Queue")
         self.assertEqual(self.mock_client.models.generate_content.call_count, 2)
+
+    def test_daily_quota_returns_fallback_without_retry(self):
+        self.mock_client.models.generate_content.side_effect = Exception(
+            "429 Quota exceeded for quota metric 'GenerateRequestsPerDayPerProjectPerModel'"
+        )
+
+        result = self.engine.generate_project_spec(target_role="Backend Engineer", tech_stack=["Python"])
+
+        self.assertTrue(IdeationEngine.is_fallback(result))
+        self.assertEqual(self.mock_client.models.generate_content.call_count, 1)
 
     def test_fallback_spec_generation(self):
         # Offline engine with no client
@@ -196,15 +227,25 @@ class TestIdeationEngine(unittest.TestCase):
             target_role="Backend Engineer",
             tech_stack=["Python", "FastAPI", "PostgreSQL"],
         )
-        self.assertIsNotNone(spec_backend)
         self.assertIn("PromptPay", spec_backend.title)
+        self.assertTrue(IdeationEngine.is_fallback(spec_backend))
 
         spec_data = offline_engine.generate_project_spec(
             target_role="Data Engineer / Data Analyst",
             tech_stack=["Python", "Spark", "Airflow"],
         )
-        self.assertIsNotNone(spec_data)
         self.assertIn("Telemetry", spec_data.title)
+
+    def test_fallback_specs_are_scoped_and_claim_no_metrics(self):
+        offline_engine = IdeationEngine(client=None)
+        banned = re.compile(r"\bp\d{2}\b|\d+\s*ms\b|/sec\b|\bFPS\b|cardholder|CVV", re.IGNORECASE)
+
+        for role in ("Backend Engineer", "Data Engineer / Data Analyst", "Frontend Engineer"):
+            spec = offline_engine.generate_project_spec(target_role=role, tech_stack=[])
+            text = spec.model_dump_json()
+            self.assertIsNone(banned.search(text), f"{role}: {banned.search(text)}")
+            self.assertTrue(spec.walking_skeleton and spec.failure_modes and spec.verification)
+            self.assertIn(spec.title, FALLBACK_TITLES)
 
 
 class TestGeneratorOrchestrator(unittest.TestCase):

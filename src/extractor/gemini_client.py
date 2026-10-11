@@ -15,19 +15,21 @@ from typing import Any, Optional, Tuple, TypeVar
 
 from google import genai
 from google.genai import types
-from pydantic import BaseModel
+from pydantic import TypeAdapter
 
 logger = logging.getLogger(__name__)
 
 _UNSET = object()
-DEFAULT_MODEL = (os.environ.get("GEMINI_MODEL") or "").strip() or "gemini-3.8-flash"
+# Static default. GEMINI_MODEL is read per instance in BaseGeminiService.__init__,
+# so an env change after import (tests, notebooks) still takes effect.
+DEFAULT_MODEL = "gemini-3.8-flash"
 FALLBACK_MODEL = "gemini-2.5-flash"
 DEFAULT_RATE_LIMIT_DELAY = 4.0  # Safe for 15 RPM free tier
 MAX_RETRIES = 4
 INITIAL_BACKOFF = 2.0
 REQUEST_TIMEOUT_MS = 30_000
 CIRCUIT_BREAK_AFTER = 3  # consecutive calls that exhausted every retry
-T = TypeVar("T", bound=BaseModel)
+R = TypeVar("R")
 
 
 class DailyQuotaExhaustedError(Exception):
@@ -114,7 +116,8 @@ class BaseGeminiService:
         else:
             self.api_key = (api_key or "").strip()
 
-        chosen_model = (model_name or model or DEFAULT_MODEL).strip()
+        env_model = (os.getenv("GEMINI_MODEL") or "").strip()
+        chosen_model = (model_name or model or env_model or DEFAULT_MODEL).strip()
         self.model = chosen_model
         self.model_name = chosen_model
         self.rate_limit_delay = rate_limit_delay
@@ -143,8 +146,12 @@ class BaseGeminiService:
         """Records timestamp of outbound call for throttling calculations."""
         self._last_call_time = time.monotonic()
 
-    def _generate(self, contents: str, config: types.GenerateContentConfig, schema: type[T]) -> Optional[T]:
-        """One structured call: retries, 503 model fallback, and a breaker that spans calls."""
+    def _generate(self, contents: str, config: types.GenerateContentConfig, schema: type[R]) -> Optional[R]:
+        """
+        One structured call: retries, 503 model fallback, and a breaker that spans calls.
+        `schema` is a Pydantic model or `list[Model]`; the response is validated against it.
+        """
+        adapter = TypeAdapter(schema)
         if not self.client:
             logger.warning(f"[{type(self).__name__}] No client configured; skipping generation.")
             return None
@@ -161,9 +168,13 @@ class BaseGeminiService:
             self._record_call()
             try:
                 resp = self.client.models.generate_content(model=model, contents=contents, config=config)
-                parsed = resp.parsed if (hasattr(resp, "parsed") and isinstance(resp.parsed, schema)) else None
-                if parsed is None and hasattr(resp, "text") and resp.text:
-                    parsed = schema.model_validate_json(resp.text)
+                raw = getattr(resp, "parsed", None)
+                if raw is not None:
+                    parsed = adapter.validate_python(raw)
+                elif getattr(resp, "text", None):
+                    parsed = adapter.validate_json(resp.text)
+                else:
+                    parsed = None
                 if parsed is not None:
                     self._consecutive_failures = 0
                     return parsed

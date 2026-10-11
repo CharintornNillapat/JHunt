@@ -10,12 +10,11 @@ from contextlib import contextmanager
 import json
 import os
 import sqlite3
-from collections import Counter
-from itertools import combinations
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from src.extractor.schemas import ExtractedJob
+from src.storage.schema import LEGACY_PROJECTS_MIGRATION, SCHEMA_STATEMENTS
 
 
 DEFAULT_DB_PATH = Path(r"data/market.db")
@@ -57,59 +56,14 @@ class DatabaseManager:
             conn.close()
 
     def _init_db(self) -> None:
-        """Initializes tables and indexes if they do not already exist."""
+        """Applies the shared schema, first migrating a legacy generated_projects table."""
         with self._connection() as conn:
-            cursor = conn.cursor()
-
-            # 1. Raw & normalized scraped jobs
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS jobs (
-                    id TEXT PRIMARY KEY,
-                    title TEXT NOT NULL,
-                    company TEXT NOT NULL,
-                    url TEXT NOT NULL,
-                    location TEXT,
-                    salary TEXT,
-                    work_type TEXT,
-                    raw_content TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-            """)
-
-            # 2. Structured LLM-extracted tech stacks & competencies
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS skills_extracted (
-                    job_id TEXT PRIMARY KEY,
-                    experience_level TEXT,
-                    must_have_skills TEXT,
-                    nice_to_have_skills TEXT,
-                    frameworks TEXT,
-                    databases TEXT,
-                    cloud_infra TEXT,
-                    tools TEXT,
-                    extracted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (job_id) REFERENCES jobs (id) ON DELETE CASCADE
-                );
-            """)
-
-            # 3. Generated portfolio project blueprints
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS generated_projects (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    title TEXT NOT NULL,
-                    role TEXT NOT NULL,
-                    domain_industry TEXT,
-                    tech_stack TEXT,
-                    file_path TEXT NOT NULL,
-                    generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-            """)
-
-            # Indexes for performance and deduplication
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_jobs_created_at ON jobs (created_at);")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_skills_job_id ON skills_extracted (job_id);")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_projects_generated_at ON generated_projects (generated_at);")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_projects_role ON generated_projects (role);")
+            legacy_cols = {row["name"] for row in conn.execute("PRAGMA table_info(generated_projects)")}
+            if "domain_industry" in legacy_cols:
+                for statement in LEGACY_PROJECTS_MIGRATION:
+                    conn.execute(statement)
+            for statement in SCHEMA_STATEMENTS:
+                conn.execute(statement)
 
     # ── Job Operations ────────────────────────────────────────────────────────
 
@@ -301,29 +255,29 @@ class DatabaseManager:
         title: str,
         role: str,
         tech_stack: Union[List[str], str],
-        file_path: Union[str, Path],
-        domain_industry: str = "",
+        difficulty: str = "",
+        domain: str = "",
+        spec_markdown: str = "",
     ) -> int:
-        """
-        Records a newly generated project blueprint and returns its generated database ID.
-        """
-        stack_str = json.dumps(tech_stack) if isinstance(tech_stack, list) else str(tech_stack)
+        """Records a generated blueprint (same columns as Turso) and returns its row id."""
+        stack_str = json.dumps(tech_stack, ensure_ascii=False) if isinstance(tech_stack, list) else str(tech_stack)
         with self._connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
+            cursor = conn.execute(
                 """
-                INSERT INTO generated_projects (title, role, domain_industry, tech_stack, file_path)
-                VALUES (?, ?, ?, ?, ?);
+                INSERT INTO generated_projects (title, role, difficulty, domain, tech_stack, spec_markdown)
+                VALUES (?, ?, ?, ?, ?, ?);
                 """,
-                (
-                    title.strip(),
-                    role.strip(),
-                    domain_industry.strip(),
-                    stack_str,
-                    str(file_path),
-                ),
+                (title.strip(), role.strip(), difficulty.strip(), domain.strip(), stack_str, spec_markdown),
             )
             return cursor.lastrowid or 0
+
+    def has_generated_project(self, title: str) -> bool:
+        """True when a blueprint with this exact title is already recorded."""
+        with self._connection() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM generated_projects WHERE title = ? LIMIT 1;", (title.strip(),)
+            ).fetchone()
+            return row is not None
 
     def get_generated_projects(self, limit: int = 50) -> List[Dict[str, Any]]:
         """Retrieves recent generated project records."""
@@ -332,7 +286,7 @@ class DatabaseManager:
             cursor.execute(
                 """
                 SELECT * FROM generated_projects
-                ORDER BY generated_at DESC LIMIT ?;
+                ORDER BY created_at DESC LIMIT ?;
                 """,
                 (limit,),
             )

@@ -10,11 +10,12 @@ from __future__ import annotations
 import json
 import logging
 import os
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import libsql_client
 
 from src.extractor.schemas import ExtractedJob
+from src.storage.schema import SCHEMA_STATEMENTS
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,7 @@ class TursoClient:
         self.database_url = raw_url
         self.db_url = raw_url
         self.auth_token = raw_token
+        self.client: Any = None  # set before connecting so the failure path below can test it
 
         if client is not None:
             self.client = client
@@ -96,56 +98,12 @@ class TursoClient:
         """Initializes tables in Turso cloud database if they do not exist."""
         if not self.client:
             return
-
-        # 1. Jobs table
-        self.client.execute("""
-            CREATE TABLE IF NOT EXISTS jobs (
-                id TEXT PRIMARY KEY,
-                title TEXT NOT NULL,
-                company TEXT NOT NULL,
-                url TEXT NOT NULL,
-                location TEXT,
-                salary TEXT,
-                work_type TEXT,
-                raw_content TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
-        """)
-
-        # 2. Skills extracted table
-        self.client.execute("""
-            CREATE TABLE IF NOT EXISTS skills_extracted (
-                job_id TEXT PRIMARY KEY,
-                experience_level TEXT,
-                must_have_skills TEXT,
-                nice_to_have_skills TEXT,
-                frameworks TEXT,
-                databases TEXT,
-                cloud_infra TEXT,
-                tools TEXT,
-                extracted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (job_id) REFERENCES jobs (id) ON DELETE CASCADE
-            );
-        """)
-
-        # 3. Generated portfolio blueprints table
-        self.client.execute("""
-            CREATE TABLE IF NOT EXISTS generated_projects (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                title TEXT NOT NULL,
-                role TEXT NOT NULL,
-                difficulty TEXT,
-                domain TEXT,
-                tech_stack TEXT,
-                spec_markdown TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
-        """)
+        self.client.batch(list(SCHEMA_STATEMENTS))
 
     def sync_jobs(self, jobs_list: Union[List[Dict[str, Any]], Dict[str, Any]]) -> int:
         """
-        Inserts or ignores scraped jobs into Turso `jobs` table.
-        Returns count of synced jobs.
+        Inserts or ignores scraped jobs into the Turso `jobs` table in one round trip.
+        Returns the number of rows sent, or 0 if the batch failed.
         """
         if not self.client or not jobs_list:
             return 0
@@ -155,7 +113,7 @@ class TursoClient:
         else:
             items = list(jobs_list)
 
-        synced_count = 0
+        stmts = []
         for job in items:
             job_id = str(job.get("id") or "").strip()
             if not job_id:
@@ -174,29 +132,22 @@ class TursoClient:
             else:
                 raw_content_str = str(raw_content)
 
-            try:
-                self.client.execute(
-                    """
-                    INSERT OR IGNORE INTO jobs (
-                        id, title, company, url, location, salary, work_type, raw_content
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
-                    """,
-                    [
-                        job_id,
-                        str(job.get("title") or "").strip(),
-                        str(job.get("company") or "").strip(),
-                        str(job.get("url") or "").strip(),
-                        str(job.get("location") or "").strip(),
-                        str(job.get("salary") or "").strip(),
-                        str(job.get("work_type") or "").strip(),
-                        raw_content_str,
-                    ],
-                )
-                synced_count += 1
-            except Exception as e:
-                logger.warning(f"[TursoClient] Failed to sync job {job_id}: {e}")
+            stmts.append((
+                "INSERT OR IGNORE INTO jobs (id, title, company, url, location, salary, work_type, raw_content) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    job_id,
+                    str(job.get("title") or "").strip(),
+                    str(job.get("company") or "").strip(),
+                    str(job.get("url") or "").strip(),
+                    str(job.get("location") or "").strip(),
+                    str(job.get("salary") or "").strip(),
+                    str(job.get("work_type") or "").strip(),
+                    raw_content_str,
+                ],
+            ))
 
-        return synced_count
+        return self._run_batch(stmts, "jobs")
 
     def sync_extracted_skills(self, skills_data: Any) -> int:
         """
@@ -208,47 +159,62 @@ class TursoClient:
             return 0
 
         raw_items = [skills_data] if isinstance(skills_data, dict) else list(skills_data)
-        synced_count = 0
-
+        stmts = []
         for item in raw_items:
             r = self._normalize_skill_record(item)
             if not r or not r.get("job_id"):
                 continue
+            stmts.append((
+                """
+                INSERT INTO skills_extracted (
+                    job_id, experience_level, must_have_skills, nice_to_have_skills,
+                    frameworks, databases, cloud_infra, tools
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(job_id) DO UPDATE SET
+                    experience_level = excluded.experience_level,
+                    must_have_skills = excluded.must_have_skills,
+                    nice_to_have_skills = excluded.nice_to_have_skills,
+                    frameworks = excluded.frameworks,
+                    databases = excluded.databases,
+                    cloud_infra = excluded.cloud_infra,
+                    tools = excluded.tools,
+                    extracted_at = CURRENT_TIMESTAMP
+                """,
+                [
+                    str(r["job_id"]),
+                    str(r.get("experience_level") or "Unknown"),
+                    self._to_json_str(r.get("must_have_skills")),
+                    self._to_json_str(r.get("nice_to_have_skills")),
+                    self._to_json_str(r.get("frameworks")),
+                    self._to_json_str(r.get("databases")),
+                    self._to_json_str(r.get("cloud_infra")),
+                    self._to_json_str(r.get("tools")),
+                ],
+            ))
 
-            job_id = r["job_id"]
-            try:
-                self.client.execute(
-                    """
-                    INSERT INTO skills_extracted (
-                        job_id, experience_level, must_have_skills, nice_to_have_skills,
-                        frameworks, databases, cloud_infra, tools
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(job_id) DO UPDATE SET
-                        experience_level = excluded.experience_level,
-                        must_have_skills = excluded.must_have_skills,
-                        nice_to_have_skills = excluded.nice_to_have_skills,
-                        frameworks = excluded.frameworks,
-                        databases = excluded.databases,
-                        cloud_infra = excluded.cloud_infra,
-                        tools = excluded.tools,
-                        extracted_at = CURRENT_TIMESTAMP;
-                    """,
-                    [
-                        str(job_id),
-                        str(r.get("experience_level") or "Unknown"),
-                        self._to_json_str(r.get("must_have_skills")),
-                        self._to_json_str(r.get("nice_to_have_skills")),
-                        self._to_json_str(r.get("frameworks")),
-                        self._to_json_str(r.get("databases")),
-                        self._to_json_str(r.get("cloud_infra")),
-                        self._to_json_str(r.get("tools")),
-                    ],
-                )
-                synced_count += 1
-            except Exception as e:
-                logger.warning(f"[TursoClient] Failed to sync extracted skills for job {job_id}: {e}")
+        return self._run_batch(stmts, "skills_extracted")
 
-        return synced_count
+    def _run_batch(self, stmts: List[Tuple[str, List[Any]]], table: str) -> int:
+        """Sends all statements in one round trip (one transaction). Returns rows sent, or 0 on failure."""
+        if not stmts:
+            return 0
+        try:
+            self.client.batch(stmts)
+            return len(stmts)
+        except Exception as e:
+            logger.warning(f"[TursoClient] Batch sync of {len(stmts)} {table} row(s) failed: {e}")
+            return 0
+
+    def has_blueprint(self, title: str) -> bool:
+        """True when Turso already holds a blueprint with this title. False on error (caller may save again)."""
+        if not self.client:
+            return False
+        try:
+            rs = self.client.execute("SELECT 1 FROM generated_projects WHERE title = ? LIMIT 1", [title.strip()])
+            return len(rs.rows) > 0
+        except Exception as e:
+            logger.warning(f"[TursoClient] Blueprint lookup failed: {e}")
+            return False
 
     def sync_blueprint(
         self,

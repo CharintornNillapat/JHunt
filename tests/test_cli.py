@@ -77,6 +77,10 @@ class TestSubcommandRouting(unittest.TestCase):
         mock_analyze.assert_called_once()
 
 
+# main.py runs load_dotenv() at import, so a developer's real .env is in os.environ.
+# Blank the credentials so the pipeline under test can never reach production
+# Turso or Gemini (earlier runs inserted test blueprints into the live database).
+@patch.dict("os.environ", {"TURSO_DATABASE_URL": "", "TURSO_AUTH_TOKEN": "", "GEMINI_API_KEY": ""})
 class TestPipelineOrchestration(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.mkdtemp(prefix="jhunt_cli_test_")

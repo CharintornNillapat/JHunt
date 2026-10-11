@@ -6,32 +6,20 @@ into structured Pydantic ExtractedJob models with exponential backoff and rate l
 """
 from __future__ import annotations
 
+import json
 import logging
-import os
-import random
 import re
-import time
-from typing import Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
-from google import genai
 from google.genai import types
 
-from src.extractor.gemini_client import (
-    BaseGeminiService,
-    DailyQuotaExhaustedError,
-    is_daily_quota_exhausted,
-    is_transient_error,
-    calculate_backoff_sleep,
-    DEFAULT_MODEL,
-    FALLBACK_MODEL,
-    DEFAULT_RATE_LIMIT_DELAY,
-    MAX_RETRIES,
-    INITIAL_BACKOFF,
-    _UNSET,
-)
-from src.extractor.schemas import ExtractedJob
+from src.extractor.gemini_client import BaseGeminiService, DailyQuotaExhaustedError
+from src.extractor.schemas import BatchExtractedJob, ExtractedJob
 from src.extractor.text_sanitizer import build_sanitized_job_prompt
-from src.storage.db import DatabaseManager
+
+if TYPE_CHECKING:
+    # Annotation only: a runtime import closes the cycle storage.db -> extractor -> storage.db.
+    from src.storage.db import DatabaseManager
 
 logger = logging.getLogger(__name__)
 
@@ -87,8 +75,10 @@ def is_tech_job(job_or_title: Union[Dict[str, Any], str], description: Optional[
     return bool(has_core_tech)
 
 
-EXTRACTION_SYSTEM_INSTRUCTION = """You are an expert technical recruiter and software engineering systems architect analyzing the Thailand tech job market.
-Analyze the provided Job Description (JD) and extract canonical, standardized technical metadata into the required schema.
+EXTRACTION_SYSTEM_INSTRUCTION = """You are a technical recruiter analyzing job postings from the Thailand tech market.
+You receive a JSON array of postings. Each has an integer "id", a "title", a "company" and a "description".
+Return one entry per posting, copying its "id" exactly, with canonical technical metadata in the required schema.
+Never merge, skip or reorder ids: an entry whose id is not in the input is discarded.
 
 Extraction Rules:
 1. Canonicalize naming: Normalize all skill/tool names to industry standard casing (e.g. 'Python', 'FastAPI', 'PostgreSQL', 'Redis', 'Docker', 'AWS', 'Kubernetes', 'Apache Kafka', 'Airflow', 'Go', 'TypeScript').
@@ -106,48 +96,59 @@ Extraction Rules:
    - 'Senior' (5+ years)
    - 'Lead' (Staff, Principal, Team Lead)
    - 'Unknown' (If unspecified)
-4. Strict truthfulness: Only extract skills that are explicitly mentioned or clearly required in the text.
+4. Strict truthfulness: Only extract skills that are explicitly mentioned or clearly required in that posting's own text.
 """
+
+# One request covers this many jobs. The free tier allows ~20 requests/day per model,
+# so 30 jobs cost 2 requests instead of 30.
+BATCH_SIZE = 15
+MAX_DESCRIPTION_CHARS = 1500  # keeps a full batch well under the model's input budget
 
 
 class GeminiExtractor(BaseGeminiService):
-    """
-    Client wrapper for Gemini API structured skill extraction.
-    Enforces exponential backoff, jitter, rate-limit pauses, and Pydantic validation.
-    """
+    """Batch skill extraction over Gemini structured output, with the base class's retries and circuit breaker."""
 
-
-    def extract_job(
-        self,
-        job_text: str,
-        fallback_title: str = "",
-        fallback_company: str = "",
-    ) -> Optional[ExtractedJob]:
+    def extract_batch(self, jobs: List[Dict[str, Any]]) -> Dict[str, ExtractedJob]:
         """
-        Extracts structured tech stack data from sanitized job text.
-        Returns ExtractedJob on success, or None on failure after retries.
-        Raises DailyQuotaExhaustedError if 429 indicates daily limit exhausted.
+        Extracts up to BATCH_SIZE jobs in one request.
+        Returns {job_id: ExtractedJob} for the jobs the model answered; unanswered
+        jobs are absent and stay in the queue for the next run.
+        Raises DailyQuotaExhaustedError when the daily quota is gone or the circuit is open.
         """
-        if not self.client:
-            logger.warning("[GeminiExtractor] No API key configured; skipping extraction.")
-            return None
+        if not jobs:
+            return {}
 
-        prompt = f"Please extract the technical specifications from this job posting:\n\n{job_text}"
-
+        payload = [
+            {
+                "id": i,
+                "title": str(job.get("title") or ""),
+                "company": str(job.get("company") or ""),
+                "description": build_sanitized_job_prompt(job, max_chars=MAX_DESCRIPTION_CHARS),
+            }
+            for i, job in enumerate(jobs)
+        ]
         config = types.GenerateContentConfig(
             system_instruction=EXTRACTION_SYSTEM_INSTRUCTION,
             response_mime_type="application/json",
-            response_schema=ExtractedJob,
+            response_schema=list[BatchExtractedJob],
             temperature=0.1,
         )
+        items = self._generate(json.dumps(payload, ensure_ascii=False), config, list[BatchExtractedJob]) or []
 
-        extracted = self._generate(prompt, config, ExtractedJob)
-        if extracted is not None:
-            if not extracted.job_title and fallback_title:
-                extracted.job_title = fallback_title
-            if not extracted.company and fallback_company:
-                extracted.company = fallback_company
-        return extracted
+        results: Dict[str, ExtractedJob] = {}
+        for item in items:
+            if not 0 <= item.id < len(jobs):
+                logger.warning(f"[GeminiExtractor] Discarding answer for unknown id {item.id}.")
+                continue
+            job = jobs[item.id]
+            job_id = str(job["id"])
+            if job_id in results:
+                continue
+            extracted = ExtractedJob.model_validate(item.model_dump(exclude={"id"}))
+            extracted.job_title = extracted.job_title or str(job.get("title") or "")
+            extracted.company = extracted.company or str(job.get("company") or "")
+            results[job_id] = extracted
+        return results
 
 
 def process_unprocessed_jobs(
@@ -157,76 +158,61 @@ def process_unprocessed_jobs(
     turso: Optional[Any] = None,
 ) -> int:
     """
-    Fetches un-extracted jobs from database, applies heuristic pre-filtering for non-tech roles,
-    sanitizes text, invokes Gemini, and stores ExtractedJob records into skills_extracted table.
-    Synchronizes extracted skills to Turso cloud database if available.
-    Fails fast gracefully on DailyQuotaExhaustedError.
-    Returns the count of successfully extracted jobs.
+    Extracts skills for queued jobs in batches of BATCH_SIZE per Gemini request.
+    Non-tech jobs are marked 'Non-Tech' without an API call. `limit` caps how many
+    tech jobs are sent this run. Stops cleanly on DailyQuotaExhaustedError.
+    Returns the number of jobs extracted.
     """
     if extractor is None:
         extractor = GeminiExtractor()
 
-    # If limit is specified, fetch more candidates so non-tech skipped jobs don't starve the limit
+    # Fetch extra candidates so non-tech jobs don't starve the limit.
     fetch_limit = (limit * 3) if (limit is not None and limit > 0) else None
     unprocessed = db.get_unprocessed_jobs(limit=fetch_limit)
     if not unprocessed:
         logger.info("[BatchExtractor] No unprocessed jobs in queue.")
         return 0
 
-    target_desc = f"up to {limit}" if limit else "all"
-    logger.info(f"[BatchExtractor] Processing {target_desc} tech job(s) from {len(unprocessed)} candidate(s) in queue...")
-    success_count = 0
-
-    for idx, job in enumerate(unprocessed, start=1):
-        if limit is not None and success_count >= limit:
-            logger.info(f"[BatchExtractor] Reached extraction limit ({limit}). Stopping batch.")
-            break
-
-        job_id = str(job.get("id"))
-        title = job.get("title", "")
-        company = job.get("company", "")
-
-        # Heuristic pre-filter for non-tech jobs
-        if not is_tech_job(job):
-            logger.info(f"[BatchExtractor] [{idx}/{len(unprocessed)}] Skipping non-tech job: '{title}' ({company})")
-            empty_record = ExtractedJob(
-                job_title=title,
-                company=company,
-                experience_level="Non-Tech",
-            )
-            db.save_extracted_skills(job_id, empty_record)
+    tech_jobs: List[Dict[str, Any]] = []
+    for job in unprocessed:
+        if is_tech_job(job):
+            tech_jobs.append(job)
             continue
+        title, company = job.get("title", ""), job.get("company", "")
+        logger.info(f"[BatchExtractor] Skipping non-tech job: '{title}' ({company})")
+        db.save_extracted_skills(
+            str(job["id"]),
+            ExtractedJob(job_title=title, company=company, experience_level="Non-Tech"),
+        )
 
-        logger.info(f"[BatchExtractor] [{idx}/{len(unprocessed)}] Extracting skills for: '{title}' ({company})")
+    if limit is not None and limit > 0:
+        tech_jobs = tech_jobs[:limit]
+    batches = [tech_jobs[i:i + BATCH_SIZE] for i in range(0, len(tech_jobs), BATCH_SIZE)]
+    logger.info(f"[BatchExtractor] Extracting {len(tech_jobs)} tech job(s) in {len(batches)} request(s)...")
 
-        sanitized_prompt = build_sanitized_job_prompt(job)
+    success_count = 0
+    for n, batch in enumerate(batches, start=1):
         try:
-            extracted = extractor.extract_job(
-                job_text=sanitized_prompt,
-                fallback_title=title,
-                fallback_company=company,
-            )
+            results = extractor.extract_batch(batch)
         except DailyQuotaExhaustedError as e:
-            logger.warning(
-                f"[BatchExtractor] Gemini daily quota exhausted ({e}). "
-                "Terminating extraction batch gracefully and proceeding with remaining pipeline."
-            )
+            logger.warning(f"[BatchExtractor] Gemini unavailable ({e}). Leaving the rest queued for the next run.")
             break
         except Exception as e:
-            logger.warning(f"[BatchExtractor] Unexpected error extracting job {job_id}: {e}. Skipping.")
-            extracted = None
+            logger.warning(f"[BatchExtractor] Batch {n}/{len(batches)} failed unexpectedly ({e}); left queued.")
+            continue
 
-        if extracted:
+        for job_id, extracted in results.items():
             db.save_extracted_skills(job_id, extracted)
-            if turso:
-                turso.sync_extracted_skills({
-                    "job_id": job_id,
-                    "extracted": extracted,
-                })
-            success_count += 1
-            logger.info(f"[BatchExtractor] Successfully saved skills for job {job_id} ({len(extracted.all_tech_stack)} tech tags).")
-        else:
-            logger.warning(f"[BatchExtractor] Failed to extract skills for job {job_id}. Skipping.")
+        if turso and results:
+            turso.sync_extracted_skills(
+                [{"job_id": job_id, "extracted": extracted} for job_id, extracted in results.items()]
+            )
+        success_count += len(results)
+        missing = len(batch) - len(results)
+        logger.info(
+            f"[BatchExtractor] Batch {n}/{len(batches)}: {len(results)} extracted"
+            + (f", {missing} unanswered and left queued." if missing else ".")
+        )
 
-    logger.info(f"[BatchExtractor] Completed batch: {success_count} jobs extracted.")
+    logger.info(f"[BatchExtractor] Completed: {success_count} job(s) extracted.")
     return success_count

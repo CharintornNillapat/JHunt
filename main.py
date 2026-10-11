@@ -216,11 +216,12 @@ def run_analyze_pipeline(
         exporter = MarkdownExporter(export_dir=config.get("export_dir"), db=db, turso=turso)
 
         spec = engine.generate_project_spec(target_role=role, tech_stack=dominant_stack)
-        if not spec:
-            print("[Main] Failed to generate project blueprint.")
+        exported_path = exporter.export(
+            spec=spec, target_role=role, skip_if_saved=IdeationEngine.is_fallback(spec)
+        )
+        if exported_path is None:
+            print(f"\n[Main] Gemini unavailable and curated blueprint '{spec.title}' is already saved; nothing new to export.")
             return None
-
-        exported_path = exporter.export(spec=spec, target_role=role)
         print(f"\n[Main] Successfully exported portfolio blueprint:\n-> {exported_path}")
         return exported_path
     finally:
@@ -323,8 +324,13 @@ def run_full_pipeline(
         exporter = MarkdownExporter(export_dir=config.get("export_dir"), db=db, turso=turso)
 
         spec = engine.generate_project_spec(target_role=role, tech_stack=dominant_stack)
-        if spec:
-            exported_path = exporter.export(spec=spec, target_role=role)
+        # A curated fallback is saved once; repeating it daily only duplicates rows.
+        exported_path = exporter.export(
+            spec=spec, target_role=role, skip_if_saved=IdeationEngine.is_fallback(spec)
+        )
+        if exported_path is None:
+            print(f"[Main] Gemini unavailable and curated blueprint '{spec.title}' is already saved; skipping export.")
+        else:
             results["exported_spec"] = str(exported_path)
             print(f"[Main] Portfolio Blueprint exported: {exported_path}")
 

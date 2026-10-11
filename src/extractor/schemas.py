@@ -70,42 +70,55 @@ class ExtractedJob(BaseModel):
         return sorted(combined)
 
 
+class BatchExtractedJob(ExtractedJob):
+    """One entry of a batch extraction response, tied back to its request by `id`."""
+    id: int = Field(..., description="The job's id, copied exactly from the input list")
+
+
+class FailureMode(BaseModel):
+    model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
+
+    failure: str = Field(..., description="A concrete thing that goes wrong (duplicate delivery, crash mid-write, dependency down)")
+    recovery: str = Field(..., description="How the system detects it and recovers without losing or duplicating data")
+
+
 class ProjectIdeaSpec(BaseModel):
     """
-    Architectural specification for an enterprise-grade portfolio project,
-    synthesized from trending market skill clusters and real-world business domains.
+    Buildable portfolio project spec: one core engineering problem, one service,
+    one datastore, and checks a single developer can run locally.
     """
     model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
 
-    title: str = Field(
+    title: str = Field(..., description="Specific project title naming the core problem")
+    domain_industry: str = Field(..., description="Thailand business context (e.g. 'FinTech / PromptPay payments')")
+    core_problem: str = Field(
         ...,
-        description="Production-grade project title (e.g. 'Event-Driven Real-time Fraud Detection Engine')",
-    )
-    domain_industry: str = Field(
-        ...,
-        description="Target business domain in Thailand (e.g. 'FinTech / Payment Gateway', 'E-commerce Logistics', 'Healthcare IT')",
+        description="The single engineering problem the project exists to solve, in one or two sentences",
     )
     target_tech_stack: List[str] = Field(
         default_factory=list,
-        description="Curated tech stack directly matching market co-occurrence clusters",
+        description="Only the technologies the core problem needs",
     )
-    architecture_overview: str = Field(
+    system_boundary: str = Field(
         ...,
-        description="High-level architectural design, system boundaries, and data flow patterns",
+        description="Exactly one service and one primary datastore (plus at most one cache or queue if the problem needs it). State what is in and out of scope",
     )
-    core_features: List[str] = Field(
+    walking_skeleton: List[str] = Field(
         default_factory=list,
-        description="Key MVP and production-grade capabilities required in implementation",
+        description="Ordered build steps. Step 1 is a thin end-to-end slice that runs locally; each later step adds one capability",
     )
-    database_schema: str = Field(
+    contracts: str = Field(
         ...,
-        description="Entity-relationship overview, primary data models, and storage strategies",
+        description="Typed request, response and event contracts as Pydantic models or OpenAPI paths with status codes",
     )
-    engineering_challenges: List[str] = Field(
+    database_schema: str = Field(..., description="Tables, keys and constraints that enforce the core invariant")
+    failure_modes: List[FailureMode] = Field(default_factory=list)
+    verification: List[str] = Field(
         default_factory=list,
-        description="Non-trivial engineering challenges addressed (concurrency, distributed transactions, idempotency, rate-limiting)",
+        description="Falsifiable local checks (pytest, Locust, Playwright) with concrete pass conditions such as counts or invariants. No latency or throughput targets",
     )
+    out_of_scope: List[str] = Field(default_factory=list, description="Tempting additions deliberately excluded")
     difficulty: str = Field(
         default="Intermediate",
-        description="Target implementation difficulty tier: 'Junior', 'Intermediate', or 'Advanced'",
+        description="'Junior', 'Intermediate', or 'Advanced'",
     )

@@ -5,6 +5,7 @@ import { formatDate, parseTechStack } from "./format";
 
 export { formatDate, parseTechStack };
 
+// Mirrors the generated_projects columns in src/storage/schema.py (shared by SQLite and Turso).
 export interface GeneratedProject {
   id: number;
   title: string;
