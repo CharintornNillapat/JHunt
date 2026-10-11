@@ -49,16 +49,16 @@ class TursoClient:
         if client is not None:
             self.client = client
             try:
-                self.init_tables()
+                self.init_schema()
             except Exception as e:
-                logger.warning(f"[TursoClient] Failed to initialize tables with client ({e}).")
+                logger.warning(f"[TursoClient] Failed to initialize schema with client ({e}).")
         elif self.database_url:
             try:
                 self.client = libsql_client.create_client_sync(
                     url=self.database_url,
                     auth_token=self.auth_token or None,
                 )
-                self.init_tables()
+                self.init_schema()
                 logger.info(f"[TursoClient] Connected to Turso cloud database: {self.database_url}")
             except Exception as e:
                 logger.warning(
@@ -94,11 +94,18 @@ class TursoClient:
             finally:
                 self.client = None
 
-    def init_tables(self) -> None:
-        """Initializes tables in Turso cloud database if they do not exist."""
+    def init_schema(self) -> None:
+        """
+        Initializes unified schema tables and performance B-Tree indexes
+        in Turso cloud database in a single batch round trip.
+        """
         if not self.client:
             return
         self.client.batch(list(SCHEMA_STATEMENTS))
+
+    def init_tables(self) -> None:
+        """Backwards-compatible alias for init_schema."""
+        self.init_schema()
 
     def sync_jobs(self, jobs_list: Union[List[Dict[str, Any]], Dict[str, Any]]) -> int:
         """

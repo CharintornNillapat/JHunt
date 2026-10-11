@@ -14,9 +14,30 @@ GENERATED_PROJECTS_DDL = """
         domain TEXT,
         tech_stack TEXT,
         spec_markdown TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        target_role TEXT GENERATED ALWAYS AS (role) VIRTUAL
     )
 """
+
+INDEX_STATEMENTS = (
+    "CREATE INDEX IF NOT EXISTS idx_skills_name ON skills_extracted(skill_name)",
+    "CREATE INDEX IF NOT EXISTS idx_skills_experience ON skills_extracted(experience_level)",
+    "CREATE INDEX IF NOT EXISTS idx_skills_job_id ON skills_extracted(job_id)",
+    "CREATE INDEX IF NOT EXISTS idx_jobs_posted_at ON jobs(posted_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_jobs_source ON jobs(source)",
+    "CREATE INDEX IF NOT EXISTS idx_projects_created_at ON generated_projects(created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_projects_role ON generated_projects(target_role)",
+)
+
+EXPECTED_INDEXES = (
+    "idx_skills_name",
+    "idx_skills_experience",
+    "idx_skills_job_id",
+    "idx_jobs_posted_at",
+    "idx_jobs_source",
+    "idx_projects_created_at",
+    "idx_projects_role",
+)
 
 SCHEMA_STATEMENTS = (
     """
@@ -29,12 +50,15 @@ SCHEMA_STATEMENTS = (
         salary TEXT,
         work_type TEXT,
         raw_content TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        posted_at TIMESTAMP,
+        source TEXT
     )
     """,
     """
     CREATE TABLE IF NOT EXISTS skills_extracted (
         job_id TEXT PRIMARY KEY,
+        skill_name TEXT,
         experience_level TEXT,
         must_have_skills TEXT,
         nice_to_have_skills TEXT,
@@ -48,8 +72,8 @@ SCHEMA_STATEMENTS = (
     """,
     GENERATED_PROJECTS_DDL,
     "CREATE INDEX IF NOT EXISTS idx_jobs_created_at ON jobs (created_at)",
-    "CREATE INDEX IF NOT EXISTS idx_projects_created_at ON generated_projects (created_at)",
     "CREATE INDEX IF NOT EXISTS idx_projects_title ON generated_projects (title)",
+    *INDEX_STATEMENTS,
 )
 
 # Local SQLite files created before the schemas were unified stored

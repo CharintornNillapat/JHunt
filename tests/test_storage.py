@@ -15,7 +15,7 @@ from unittest.mock import MagicMock, patch
 from src.extractor.schemas import ExtractedJob, FailureMode, ProjectIdeaSpec
 from src.generator.markdown_exporter import MarkdownExporter
 from src.storage.db import DatabaseManager
-from src.storage.schema import SCHEMA_STATEMENTS
+from src.storage.schema import EXPECTED_INDEXES, SCHEMA_STATEMENTS
 from src.storage.turso_client import TursoClient
 
 
@@ -68,6 +68,16 @@ class TestDatabaseManager(unittest.TestCase):
 
     def test_database_initialization(self):
         self.assertTrue(self.db_path.exists())
+
+    def test_database_indexes_exist_after_init_db(self):
+        self.db.init_db()
+        conn = sqlite3.connect(self.db_path)
+        try:
+            indexes = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='index'")}
+        finally:
+            conn.close()
+        for idx in EXPECTED_INDEXES:
+            self.assertIn(idx, indexes, f"Index {idx} should exist after init_db()")
 
     def test_save_job_and_duplicate_prevention(self):
         job_data = {
@@ -316,6 +326,49 @@ class TestTursoClient(unittest.TestCase):
 
         # The shared schema is applied in one round trip, identical to local SQLite
         mock_client.batch.assert_called_once_with(list(SCHEMA_STATEMENTS))
+
+    def test_turso_indexes_exist_after_init_schema(self):
+        mock_client = MagicMock()
+        turso = TursoClient(client=mock_client)
+        mock_client.batch.reset_mock()
+
+        turso.init_schema()
+        mock_client.batch.assert_called_once_with(list(SCHEMA_STATEMENTS))
+        batched_statements = mock_client.batch.call_args[0][0]
+        for idx in EXPECTED_INDEXES:
+            matching = [s for s in batched_statements if isinstance(s, str) and idx in s]
+            self.assertTrue(len(matching) > 0, f"Expected {idx} in Turso init_schema batch")
+
+    def test_turso_init_schema_creates_all_expected_indexes(self):
+        temp_dir = tempfile.mkdtemp(prefix="jhunt_turso_idx_test_")
+        try:
+            db_path = Path(temp_dir) / "sim_turso.db"
+            conn = sqlite3.connect(db_path)
+
+            class SimulatedLibsqlClient:
+                def __init__(self, connection):
+                    self.conn = connection
+
+                def batch(self, stmts):
+                    for stmt in stmts:
+                        if isinstance(stmt, str):
+                            self.conn.execute(stmt)
+                        else:
+                            self.conn.execute(stmt[0], stmt[1])
+
+                def close(self):
+                    self.conn.close()
+
+            sim_client = SimulatedLibsqlClient(conn)
+            turso = TursoClient(client=sim_client)
+            turso.init_schema()
+
+            indexes = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='index'")}
+            for idx in EXPECTED_INDEXES:
+                self.assertIn(idx, indexes, f"Index {idx} should exist after Turso init_schema")
+            conn.close()
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
     def test_malformed_url_falls_back_instead_of_raising(self):
         with patch("libsql_client.create_client_sync", side_effect=ValueError("unsupported URL scheme")):

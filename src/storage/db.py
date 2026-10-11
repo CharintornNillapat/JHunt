@@ -36,7 +36,7 @@ class DatabaseManager:
             self.db_path = DEFAULT_DB_PATH
 
         self._ensure_db_dir()
-        self._init_db()
+        self.init_db()
 
     def _ensure_db_dir(self) -> None:
         """Ensures parent directory for the database file exists."""
@@ -55,6 +55,10 @@ class DatabaseManager:
         finally:
             conn.close()
 
+    def init_db(self) -> None:
+        """Applies the shared schema and creates indexes, safely migrating legacy tables if needed."""
+        self._init_db()
+
     def _init_db(self) -> None:
         """Applies the shared schema, first migrating a legacy generated_projects table."""
         with self._connection() as conn:
@@ -62,6 +66,25 @@ class DatabaseManager:
             if "domain_industry" in legacy_cols:
                 for statement in LEGACY_PROJECTS_MIGRATION:
                     conn.execute(statement)
+
+            # Ensure columns exist if tables already existed prior to indexing
+            jobs_cols = {row["name"] for row in conn.execute("PRAGMA table_info(jobs)")}
+            if jobs_cols:
+                if "posted_at" not in jobs_cols:
+                    conn.execute("ALTER TABLE jobs ADD COLUMN posted_at TIMESTAMP")
+                if "source" not in jobs_cols:
+                    conn.execute("ALTER TABLE jobs ADD COLUMN source TEXT")
+
+            skills_cols = {row["name"] for row in conn.execute("PRAGMA table_info(skills_extracted)")}
+            if skills_cols:
+                if "skill_name" not in skills_cols:
+                    conn.execute("ALTER TABLE skills_extracted ADD COLUMN skill_name TEXT")
+
+            proj_cols = {row["name"] for row in conn.execute("PRAGMA table_xinfo(generated_projects)")}
+            if proj_cols:
+                if "target_role" not in proj_cols:
+                    conn.execute("ALTER TABLE generated_projects ADD COLUMN target_role TEXT GENERATED ALWAYS AS (role) VIRTUAL")
+
             for statement in SCHEMA_STATEMENTS:
                 conn.execute(statement)
 
