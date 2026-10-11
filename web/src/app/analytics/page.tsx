@@ -1,6 +1,6 @@
 import nextDynamic from "next/dynamic";
-import { getMarketAnalytics } from "@/lib/turso";
-import AnalyticsSkeleton from "@/components/AnalyticsSkeleton";
+import { getMarketAnalytics, calculateSkillGap } from "@/lib/turso";
+import AnalyticsSkeleton, { SkillGapSkeleton } from "@/components/AnalyticsSkeleton";
 import SpotlightCard from "@/components/SpotlightCard";
 import { Activity, Cpu, Layers, Sparkles } from "lucide-react";
 
@@ -15,9 +15,18 @@ const AnalyticsCharts = nextDynamic(
   }
 );
 
+const SkillGapMatcher = nextDynamic(
+  () => import("@/components/SkillGapMatcher"),
+  {
+    loading: () => <SkillGapSkeleton />,
+  }
+);
 
 export default async function AnalyticsPage() {
-  const analytics = await getMarketAnalytics();
+  const [analytics, initialSkillGap] = await Promise.all([
+    getMarketAnalytics(),
+    calculateSkillGap(["Python", "FastAPI"]),
+  ]);
 
   if (!analytics) {
     return (
@@ -118,6 +127,9 @@ export default async function AnalyticsPage() {
 
         {/* Charts Section */}
         <AnalyticsCharts analytics={analytics} />
+
+        {/* Interactive Skill Gap Matcher & ROI Career Engine */}
+        <SkillGapMatcher initialData={initialSkillGap} />
       </main>
     </div>
   );
