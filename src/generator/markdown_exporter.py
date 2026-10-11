@@ -113,6 +113,7 @@ class MarkdownExporter:
         export_dir: Optional[Union[str, Path]] = None,
         db: Optional[DatabaseManager] = None,
         turso: Optional[Any] = None,
+        storage: Optional[Any] = None,
     ):
         env_export_dir = os.getenv("EXPORT_DIR")
         if export_dir is not None:
@@ -122,8 +123,12 @@ class MarkdownExporter:
         else:
             self.export_dir = DEFAULT_EXPORT_DIR
 
-        self.db = db or DatabaseManager()
-        self.turso = turso
+        self.storage = storage or db or turso
+        if self.storage is None:
+            from src.storage import get_storage
+            self.storage = get_storage()
+        self.db = db or (self.storage if hasattr(self.storage, "_connection") else None)
+        self.turso = turso or (self.storage if hasattr(self.storage, "sync_blueprint") else None)
 
     def render_spec(
         self,
@@ -140,10 +145,14 @@ class MarkdownExporter:
         )
 
     def is_saved(self, title: str) -> bool:
-        """True when a blueprint with this title is already recorded locally or in Turso."""
-        if self.db.has_generated_project(title):
+        """True when a blueprint with this title is already recorded in storage or Turso."""
+        if self.storage and hasattr(self.storage, "has_generated_project") and self.storage.has_generated_project(title):
             return True
-        return bool(self.turso is not None and self.turso.is_available and self.turso.has_blueprint(title))
+        if self.db and hasattr(self.db, "has_generated_project") and self.db.has_generated_project(title):
+            return True
+        if self.turso and getattr(self.turso, "is_available", False) and hasattr(self.turso, "has_blueprint") and self.turso.has_blueprint(title):
+            return True
+        return False
 
     def export(
         self,
@@ -181,8 +190,11 @@ class MarkdownExporter:
             "tech_stack": spec.target_tech_stack,
             "spec_markdown": markdown_content,
         }
-        self.db.record_generated_project(**record)
-        if self.turso:
+        if self.storage and hasattr(self.storage, "record_generated_project"):
+            self.storage.record_generated_project(**record)
+        if self.turso and self.turso is not self.storage and hasattr(self.turso, "sync_blueprint"):
             self.turso.sync_blueprint(**record)
+        if self.db and self.db is not self.storage and hasattr(self.db, "record_generated_project"):
+            self.db.record_generated_project(**record)
 
         return destination_path

@@ -36,12 +36,16 @@ def compute_pairwise_cooccurrences(
 
 class ClusterAnalyzer:
     """
-    Analyzes historical and extracted job records in SQLite database to uncover
-    trending tech stacks, co-occurrence pairs, and role-based clusters.
+    Analyzes historical and extracted job records in SQLite database or Turso cloud
+    to uncover trending tech stacks, co-occurrence pairs, and role-based clusters.
     """
 
-    def __init__(self, db: DatabaseManager):
-        self.db = db
+    def __init__(self, db: Optional[Any] = None, storage: Optional[Any] = None):
+        self.storage = storage or db
+        if self.storage is None:
+            from src.storage import get_storage
+            self.storage = get_storage()
+        self.db = self.storage
 
     def _normalize_tag(self, tag: str) -> str:
         """Standardizes casing and whitespace for clean aggregation."""
@@ -67,7 +71,7 @@ class ClusterAnalyzer:
         Runs comprehensive analysis over all extracted jobs in the database.
         Returns a complete MarketReport.
         """
-        all_jobs = self.db.get_all_extracted_skills()
+        all_jobs = self.storage.get_all_extracted_skills()
         total_jobs = len(all_jobs)
 
         if total_jobs == 0:

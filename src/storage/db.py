@@ -126,6 +126,47 @@ class DatabaseManager:
             )
             return cursor.rowcount > 0
 
+    def save_jobs(self, jobs_list: Union[List[Dict[str, Any]], Dict[str, Any]]) -> int:
+        """
+        Persists a batch of scraped jobs into the jobs table.
+        Returns the count of newly inserted rows.
+        """
+        if not jobs_list:
+            return 0
+        items = [jobs_list] if isinstance(jobs_list, dict) else list(jobs_list)
+        inserted_count = 0
+        with self._connection() as conn:
+            cursor = conn.cursor()
+            for job in items:
+                job_id = str(job.get("id") or "").strip()
+                if not job_id:
+                    continue
+                raw_payload = {
+                    "teaser": job.get("teaser", ""),
+                    "bullet_points": job.get("bullet_points", []),
+                    "listing_date": job.get("listing_date", ""),
+                }
+                cursor.execute(
+                    """
+                    INSERT INTO jobs (id, title, company, url, location, salary, work_type, raw_content)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(id) DO NOTHING;
+                    """,
+                    (
+                        job_id,
+                        str(job.get("title") or "").strip(),
+                        str(job.get("company") or "").strip(),
+                        str(job.get("url") or "").strip(),
+                        str(job.get("location") or "").strip(),
+                        str(job.get("salary") or "").strip(),
+                        str(job.get("work_type") or "").strip(),
+                        json.dumps(raw_payload, ensure_ascii=False),
+                    ),
+                )
+                if cursor.rowcount > 0:
+                    inserted_count += 1
+        return inserted_count
+
     def get_unprocessed_jobs(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
         """
         Retrieves jobs from `jobs` table that have not yet had skills extracted.
@@ -195,6 +236,17 @@ class DatabaseManager:
                     json.dumps(extracted.tools, ensure_ascii=False),
                 ),
             )
+
+    def save_extracted_skills_batch(self, items: List[Dict[str, Any]]) -> int:
+        """Persists or updates a batch of extracted skills for jobs."""
+        if not items:
+            return 0
+        for item in items:
+            job_id = item.get("job_id")
+            extracted = item.get("extracted")
+            if job_id and isinstance(extracted, ExtractedJob):
+                self.save_extracted_skills(str(job_id), extracted)
+        return len(items)
 
     def get_extracted_skills(self, job_id: str) -> Optional[ExtractedJob]:
         """Retrieves extracted skills for a job ID, or None if not yet extracted."""
@@ -315,3 +367,7 @@ class DatabaseManager:
             )
             rows = cursor.fetchall()
             return [dict(row) for row in rows]
+
+    def close(self) -> None:
+        """No-op for DatabaseManager since connections are managed per context manager."""
+        pass

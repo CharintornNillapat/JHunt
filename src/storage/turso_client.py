@@ -107,6 +107,21 @@ class TursoClient:
         """Backwards-compatible alias for init_schema."""
         self.init_schema()
 
+    def init_db(self) -> None:
+        """Backwards-compatible alias for init_schema."""
+        self.init_schema()
+
+    def save_job(self, job: Dict[str, Any]) -> bool:
+        """
+        Persists a scraped job into Turso `jobs` table if not already present.
+        Returns True if inserted, False if it was already stored or failed.
+        """
+        return self.sync_jobs([job]) > 0
+
+    def save_jobs(self, jobs_list: Union[List[Dict[str, Any]], Dict[str, Any]]) -> int:
+        """Alias for sync_jobs providing unified storage interface."""
+        return self.sync_jobs(jobs_list)
+
     def sync_jobs(self, jobs_list: Union[List[Dict[str, Any]], Dict[str, Any]]) -> int:
         """
         Inserts or ignores scraped jobs into the Turso `jobs` table in one round trip.
@@ -294,4 +309,184 @@ class TursoClient:
                 "tools": extracted.tools,
             }
         return item
+
+    def get_unprocessed_jobs(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
+        """
+        Retrieves jobs from Turso `jobs` table that have not yet had skills extracted.
+        Returns a list of standardized job dicts.
+        """
+        if not self.client:
+            return []
+        query = """
+            SELECT j.*
+            FROM jobs j
+            LEFT JOIN skills_extracted s ON j.id = s.job_id
+            WHERE s.job_id IS NULL
+            ORDER BY j.created_at ASC
+        """
+        params: List[Any] = []
+        if limit is not None and limit > 0:
+            query += " LIMIT ?"
+            params = [limit]
+
+        try:
+            rs = self.client.execute(query, params)
+            return [self._row_to_job(rs.columns, row) for row in rs.rows]
+        except Exception as e:
+            logger.warning(f"[TursoClient] Failed to get unprocessed jobs: {e}")
+            return []
+
+    def save_extracted_skills(self, job_id: str, extracted: ExtractedJob) -> None:
+        """Persists or updates structured LLM extracted skills for a job in Turso."""
+        self.sync_extracted_skills([{"job_id": job_id, "extracted": extracted}])
+
+    def save_extracted_skills_batch(self, items: List[Dict[str, Any]]) -> int:
+        """Alias for sync_extracted_skills providing unified storage interface."""
+        return self.sync_extracted_skills(items)
+
+    def get_extracted_skills(self, job_id: str) -> Optional[ExtractedJob]:
+        """Retrieves extracted skills for a job ID from Turso, or None if not yet extracted."""
+        if not self.client:
+            return None
+        try:
+            rs = self.client.execute(
+                """
+                SELECT s.*, j.title, j.company
+                FROM skills_extracted s
+                JOIN jobs j ON s.job_id = j.id
+                WHERE s.job_id = ? LIMIT 1;
+                """,
+                [str(job_id)],
+            )
+            if not rs.rows:
+                return None
+            return self._row_to_extracted_job(rs.columns, rs.rows[0])
+        except Exception as e:
+            logger.warning(f"[TursoClient] Failed to get extracted skills for job '{job_id}': {e}")
+            return None
+
+    def get_all_extracted_skills(self) -> List[ExtractedJob]:
+        """Retrieves all extracted skills across all analyzed jobs from Turso cloud."""
+        if not self.client:
+            return []
+        try:
+            rs = self.client.execute(
+                """
+                SELECT s.*, j.title, j.company
+                FROM skills_extracted s
+                JOIN jobs j ON s.job_id = j.id
+                WHERE s.experience_level != 'Non-Tech'
+                ORDER BY s.extracted_at DESC;
+                """
+            )
+            return [self._row_to_extracted_job(rs.columns, row) for row in rs.rows]
+        except Exception as e:
+            logger.warning(f"[TursoClient] Failed to get all extracted skills: {e}")
+            return []
+
+    def get_top_skill_cooccurrences(self, min_count: int = 1) -> List[Dict[str, Any]]:
+        """
+        Computes pairwise co-occurrences of tech stack components across all
+        extracted jobs in Turso cloud.
+        """
+        from src.analyzer.cluster_analyzer import compute_pairwise_cooccurrences
+
+        all_skills = self.get_all_extracted_skills()
+        pair_counts = compute_pairwise_cooccurrences(all_skills)
+        return [
+            {"tech_a": pair[0], "tech_b": pair[1], "count": count}
+            for pair, count in pair_counts.most_common()
+            if count >= min_count
+        ]
+
+    def record_generated_project(
+        self,
+        title: str,
+        role: str,
+        tech_stack: Union[List[str], str],
+        difficulty: str = "",
+        domain: str = "",
+        spec_markdown: str = "",
+    ) -> int:
+        """Records a generated blueprint into Turso and returns 1 on success, 0 on failure."""
+        success = self.sync_blueprint(
+            title=title,
+            role=role,
+            difficulty=difficulty,
+            domain=domain,
+            tech_stack=tech_stack,
+            spec_markdown=spec_markdown,
+        )
+        return 1 if success else 0
+
+    def has_generated_project(self, title: str) -> bool:
+        """True when Turso already holds a blueprint with this title."""
+        return self.has_blueprint(title)
+
+    def get_generated_projects(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """Retrieves recent generated project records from Turso."""
+        if not self.client:
+            return []
+        try:
+            rs = self.client.execute(
+                """
+                SELECT * FROM generated_projects
+                ORDER BY created_at DESC LIMIT ?;
+                """,
+                [limit],
+            )
+            return [self._row_to_dict(rs.columns, row) for row in rs.rows]
+        except Exception as e:
+            logger.warning(f"[TursoClient] Failed to get generated projects: {e}")
+            return []
+
+    @staticmethod
+    def _row_to_dict(columns: Any, row: Any) -> Dict[str, Any]:
+        """Converts a LibSQL Row or tuple into a standardized dict."""
+        data: Dict[str, Any] = {}
+        for idx, col in enumerate(columns):
+            try:
+                data[col] = row[col]
+            except (TypeError, KeyError, IndexError):
+                data[col] = row[idx] if idx < len(row) else None
+        return data
+
+    @classmethod
+    def _row_to_job(cls, columns: Any, row: Any) -> Dict[str, Any]:
+        """Converts a LibSQL Row into a standardized job dict, unpacking raw_content."""
+        data = cls._row_to_dict(columns, row)
+        raw_content = data.get("raw_content")
+        if raw_content:
+            try:
+                parsed_raw = json.loads(raw_content)
+                data.update(parsed_raw)
+            except (json.JSONDecodeError, TypeError):
+                pass
+        return data
+
+    @classmethod
+    def _row_to_extracted_job(cls, columns: Any, row: Any) -> ExtractedJob:
+        """Parses a LibSQL database row into an ExtractedJob Pydantic model."""
+        data = cls._row_to_dict(columns, row)
+
+        def safe_json_list(val: Any) -> List[str]:
+            if not val:
+                return []
+            try:
+                res = json.loads(val)
+                return res if isinstance(res, list) else []
+            except (json.JSONDecodeError, TypeError):
+                return []
+
+        return ExtractedJob(
+            job_title=str(data.get("title") or ""),
+            company=str(data.get("company") or ""),
+            experience_level=str(data.get("experience_level") or "Unknown"),
+            must_have_skills=safe_json_list(data.get("must_have_skills")),
+            nice_to_have_skills=safe_json_list(data.get("nice_to_have_skills")),
+            frameworks=safe_json_list(data.get("frameworks")),
+            databases=safe_json_list(data.get("databases")),
+            cloud_infra=safe_json_list(data.get("cloud_infra")),
+            tools=safe_json_list(data.get("tools")),
+        )
 

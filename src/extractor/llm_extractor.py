@@ -158,10 +158,11 @@ class GeminiExtractor(BaseGeminiService):
 
 
 def process_unprocessed_jobs(
-    db: DatabaseManager,
+    db: Optional[Any] = None,
     extractor: Optional[GeminiExtractor] = None,
     limit: Optional[int] = None,
     turso: Optional[Any] = None,
+    storage: Optional[Any] = None,
 ) -> int:
     """
     Extracts skills for queued jobs in batches of BATCH_SIZE per Gemini request.
@@ -169,12 +170,17 @@ def process_unprocessed_jobs(
     tech jobs are sent this run. Stops cleanly on DailyQuotaExhaustedError.
     Returns the number of jobs extracted.
     """
+    active_storage = storage or db or turso
+    if active_storage is None:
+        from src.storage import get_storage
+        active_storage = get_storage()
+
     if extractor is None:
         extractor = GeminiExtractor()
 
     # Fetch extra candidates so non-tech jobs don't starve the limit.
     fetch_limit = (limit * 3) if (limit is not None and limit > 0) else None
-    unprocessed = db.get_unprocessed_jobs(limit=fetch_limit)
+    unprocessed = active_storage.get_unprocessed_jobs(limit=fetch_limit)
     if not unprocessed:
         logger.info("[BatchExtractor] No unprocessed jobs in queue.")
         return 0
@@ -186,10 +192,10 @@ def process_unprocessed_jobs(
             continue
         title, company = job.get("title", ""), job.get("company", "")
         logger.info(f"[BatchExtractor] Skipping non-tech job: '{title}' ({company})")
-        db.save_extracted_skills(
-            str(job["id"]),
-            ExtractedJob(job_title=title, company=company, experience_level="Non-Tech"),
-        )
+        non_tech_extracted = ExtractedJob(job_title=title, company=company, experience_level="Non-Tech")
+        active_storage.save_extracted_skills(str(job["id"]), non_tech_extracted)
+        if turso and turso is not active_storage:
+            turso.sync_extracted_skills({"job_id": str(job["id"]), "extracted": non_tech_extracted})
 
     if limit is not None and limit > 0:
         tech_jobs = tech_jobs[:limit]
@@ -207,9 +213,15 @@ def process_unprocessed_jobs(
             logger.warning(f"[BatchExtractor] Batch {n}/{len(batches)} failed unexpectedly ({e}); left queued.")
             continue
 
-        for job_id, extracted in results.items():
-            db.save_extracted_skills(job_id, extracted)
-        if turso and results:
+        if hasattr(active_storage, "save_extracted_skills_batch"):
+            active_storage.save_extracted_skills_batch(
+                [{"job_id": job_id, "extracted": extracted} for job_id, extracted in results.items()]
+            )
+        else:
+            for job_id, extracted in results.items():
+                active_storage.save_extracted_skills(job_id, extracted)
+
+        if turso and turso is not active_storage and results:
             turso.sync_extracted_skills(
                 [{"job_id": job_id, "extracted": extracted} for job_id, extracted in results.items()]
             )

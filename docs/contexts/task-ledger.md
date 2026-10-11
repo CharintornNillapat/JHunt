@@ -83,9 +83,17 @@ Elevate `JHunt` from a keyword scraper and Telegram alerter into a production-gr
 - [x] Run complete repository test suite (`python -m unittest discover tests` — 41 tests passing).
 - [x] Update `docs/contexts/task-ledger.md` with final execution status (100% Complete).
 
+### Phase 7: Scale, Performance & Cloud Architecture Upgrades
+- [x] **Database Performance Indexing**: Added idempotent B-Tree indexes on `skills_extracted`, `jobs`, and `generated_projects` across SQLite and Turso.
+- [x] **Prompt Optimization**: Deterministic pre-cleaning and truncation for job descriptions in `src/extractor/text_sanitizer.py`.
+- [x] **CI Acceleration**: Migrated GitHub Actions workflow (`scraper_cron.yml`) to `uv` (`astral-sh/setup-uv@v5`), cutting CI runner startup time to sub-5s.
+- [x] **Frontend Code-Splitting**: Dynamic import of Recharts in `web/` with dark Obsidian loading skeleton.
+- [x] **Storage SSoT Migration**: Established Turso (LibSQL over HTTPS) as Single Source of Truth for production data ingestion, with SQLite fallback, eliminating CI runner SQLite cache.
+- [x] Comprehensive test suite expanded to 94 tests with 100% pass rate.
+
 ---
 
 ## 3. Operational Guardrails Log
-- **Cost Policy**: 100% Free Tier (Python stdlib, SQLite, Google GenAI Free Tier).
+- **Cost Policy**: 100% Free Tier (Python stdlib, SQLite, Turso Starter/Free, Google GenAI Free Tier).
 - **Pathing Policy**: Always use `pathlib.Path(r"...")` for Windows filesystem operations.
 - **Single Developer Constitution**: `CLAUDE.md` is strictly maintained; no `GEMINI.md` is created.

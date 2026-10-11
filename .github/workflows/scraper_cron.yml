@@ -36,14 +36,6 @@ jobs:
           restore-keys: |
             seen-jobs-state-v2-
 
-      - name: Restore market DB cache
-        uses: actions/cache/restore@v4
-        with:
-          path: data/market.db
-          key: market-db-v1-${{ github.run_id }}
-          restore-keys: |
-            market-db-v1-
-
       # ── 3. Initialize seen_jobs.json if cache miss ─────────────────
       - name: Initialize state file if missing
         run: |
@@ -72,6 +64,7 @@ jobs:
 
       # ── 6. Run the scraper & intelligence pipeline ────────────────
       # Runs complete end-to-end pipeline: scrape -> store -> extract -> alert -> analyze -> export
+      # Ingests directly into Turso cloud (Single Source of Truth) via HTTPS.
       # --limit 30: batch extraction sends 15 jobs per request, so this is 2 Gemini calls.
       - name: Run JHunt pipeline
         env:
@@ -92,10 +85,3 @@ jobs:
         with:
           path: data/seen_jobs.json
           key: seen-jobs-state-v2-${{ github.run_id }}
-
-      - name: Save market DB cache
-        if: always()
-        uses: actions/cache/save@v4
-        with:
-          path: data/market.db
-          key: market-db-v1-${{ github.run_id }}

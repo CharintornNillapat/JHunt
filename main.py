@@ -34,8 +34,7 @@ from src.extractor.llm_extractor import GeminiExtractor, process_unprocessed_job
 from src.generator.ideation_engine import IdeationEngine
 from src.generator.markdown_exporter import MarkdownExporter
 from src.notifier.telegram_notifier import TelegramNotifier
-from src.storage.db import DatabaseManager
-from src.storage.turso_client import TursoClient
+from src.storage import DatabaseManager, TursoClient, get_storage
 from state_manager import StateManager
 
 logger = logging.getLogger("JHunt")
@@ -172,18 +171,18 @@ def run_analyze_pipeline(
     target_role: Optional[str] = None,
     limit: Optional[int] = None,
     turso: Optional[TursoClient] = None,
+    storage: Optional[Any] = None,
 ) -> Optional[Path]:
     """
-    Offline path: Analyzes stored market data in SQLite and exports
-    a portfolio blueprint for the specified or dominant role.
+    Offline path: Analyzes stored market data in active storage (Turso cloud or local SQLite)
+    and exports a portfolio blueprint for the specified or dominant role.
     """
-    if db is None:
-        db = DatabaseManager()
-    if turso is None:
-        turso = TursoClient()
+    active_storage = storage or db or turso
+    if active_storage is None:
+        active_storage = get_storage()
 
     try:
-        analyzer = ClusterAnalyzer(db=db)
+        analyzer = ClusterAnalyzer(storage=active_storage)
         report = analyzer.generate_market_report()
 
         print(f"\n================ MARKET INTELLIGENCE REPORT ================")
@@ -213,7 +212,7 @@ def run_analyze_pipeline(
             api_key=config.get("gemini_api_key"),
             model=config.get("gemini_model"),
         )
-        exporter = MarkdownExporter(export_dir=config.get("export_dir"), db=db, turso=turso)
+        exporter = MarkdownExporter(export_dir=config.get("export_dir"), storage=active_storage)
 
         spec = engine.generate_project_spec(target_role=role, tech_stack=dominant_stack)
         exported_path = exporter.export(
@@ -225,8 +224,7 @@ def run_analyze_pipeline(
         print(f"\n[Main] Successfully exported portfolio blueprint:\n-> {exported_path}")
         return exported_path
     finally:
-        if turso is not None:
-            turso.close()
+        active_storage.close()
 
 
 def run_full_pipeline(
@@ -237,23 +235,24 @@ def run_full_pipeline(
     limit: Optional[int] = DEFAULT_EXTRACTION_LIMIT,
     target_role: Optional[str] = None,
     turso: Optional[TursoClient] = None,
+    storage: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """
     Full end-to-end pipeline:
     1. Scrape jobs.
-    2. Store all scraped jobs into SQLite `jobs` table (idempotent) and sync to Turso cloud.
+    2. Store all scraped jobs directly into active storage provider (Turso cloud or local SQLite).
     3. Filter and alert via Telegram.
-    4. Extract structured skills via Gemini and sync to Turso cloud.
+    4. Extract structured skills via Gemini directly into active storage provider.
     5. Aggregate tech clusters.
-    6. Generate and export portfolio project blueprints and sync to Turso cloud.
+    6. Generate and export portfolio project blueprints directly into active storage provider.
     7. Send Market Intelligence Brief via Telegram.
     """
-    if db is None:
-        db = DatabaseManager()
+    active_storage = storage or db or turso
+    if active_storage is None:
+        active_storage = get_storage()
+
     if state is None:
         state = StateManager()
-    if turso is None:
-        turso = TursoClient()
 
     if notifier is None:
         try:
@@ -276,14 +275,11 @@ def run_full_pipeline(
         results["scraped"] = len(raw_jobs)
         print(f"[Main] Total raw jobs scraped: {len(raw_jobs)}")
 
-        # Step 2: Store in SQLite (All jobs for market intelligence) and Turso cloud
-        stored_count = sum(1 for j in raw_jobs if db.save_job(j))
+        # Step 2: Store in active storage (Single Source of Truth)
+        stored_count = active_storage.save_jobs(raw_jobs)
         results["new_stored"] = stored_count
-        print(f"[Main] Newly stored in database: {stored_count} jobs.")
-
-        if turso.is_available:
-            turso_synced = turso.sync_jobs(raw_jobs)
-            print(f"[Main] Synchronized to Turso cloud: {turso_synced} jobs.")
+        storage_type = "Turso cloud" if getattr(active_storage, "is_available", False) else "local SQLite"
+        print(f"[Main] Newly stored in database ({storage_type}): {stored_count} jobs.")
 
         # Step 3: Filter for immediate alert
         new_jobs = state.filter_new_jobs(raw_jobs)
@@ -303,15 +299,14 @@ def run_full_pipeline(
             model=config.get("gemini_model"),
         )
         extracted_count = process_unprocessed_jobs(
-            db=db,
+            storage=active_storage,
             extractor=extractor,
             limit=extraction_limit,
-            turso=turso,
         )
         results["extracted"] = extracted_count
 
         # Step 5: Market Intelligence & Ideation
-        analyzer = ClusterAnalyzer(db=db)
+        analyzer = ClusterAnalyzer(storage=active_storage)
         report = analyzer.generate_market_report()
 
         role = target_role or StandardRole.BACKEND.value
@@ -321,7 +316,7 @@ def run_full_pipeline(
             api_key=config.get("gemini_api_key"),
             model=config.get("gemini_model"),
         )
-        exporter = MarkdownExporter(export_dir=config.get("export_dir"), db=db, turso=turso)
+        exporter = MarkdownExporter(export_dir=config.get("export_dir"), storage=active_storage)
 
         spec = engine.generate_project_spec(target_role=role, tech_stack=dominant_stack)
         # A curated fallback is saved once; repeating it daily only duplicates rows.
@@ -346,8 +341,7 @@ def run_full_pipeline(
 
     finally:
         state.save()
-        if turso is not None:
-            turso.close()
+        active_storage.close()
 
     return results
 

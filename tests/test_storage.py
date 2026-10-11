@@ -14,9 +14,8 @@ from unittest.mock import MagicMock, patch
 
 from src.extractor.schemas import ExtractedJob, FailureMode, ProjectIdeaSpec
 from src.generator.markdown_exporter import MarkdownExporter
-from src.storage.db import DatabaseManager
+from src.storage import DatabaseManager, TursoClient, get_storage
 from src.storage.schema import EXPECTED_INDEXES, SCHEMA_STATEMENTS
-from src.storage.turso_client import TursoClient
 
 
 class TestDataContracts(unittest.TestCase):
@@ -514,6 +513,113 @@ class TestTursoClient(unittest.TestCase):
         self.assertFalse(turso.is_available)
         self.assertIsNone(turso.client)
         mock_client.close.assert_called_once()
+
+    def test_turso_get_unprocessed_jobs_with_mock(self):
+        mock_client = MagicMock()
+        turso = TursoClient(client=mock_client)
+
+        class MockResult:
+            columns = ("id", "title", "company", "url", "raw_content")
+            rows = [
+                ("j1", "Backend Dev", "Acme", "https://example.com/1", '{"teaser": "Go role"}'),
+            ]
+
+        mock_client.execute.return_value = MockResult()
+        unprocessed = turso.get_unprocessed_jobs(limit=10)
+        self.assertEqual(len(unprocessed), 1)
+        self.assertEqual(unprocessed[0]["id"], "j1")
+        self.assertEqual(unprocessed[0]["teaser"], "Go role")
+
+    def test_turso_get_all_extracted_skills_with_mock(self):
+        mock_client = MagicMock()
+        turso = TursoClient(client=mock_client)
+
+        class MockSkillsResult:
+            columns = (
+                "job_id", "title", "company", "experience_level",
+                "must_have_skills", "nice_to_have_skills", "frameworks",
+                "databases", "cloud_infra", "tools",
+            )
+            rows = [
+                (
+                    "j1", "Backend Dev", "Acme", "Mid",
+                    '["Go", "Docker"]', '["Redis"]', '["Gin"]',
+                    '["PostgreSQL"]', '["AWS"]', '["Git"]',
+                )
+            ]
+
+        mock_client.execute.return_value = MockSkillsResult()
+        skills = turso.get_all_extracted_skills()
+        self.assertEqual(len(skills), 1)
+        self.assertEqual(skills[0].job_title, "Backend Dev")
+        self.assertIn("Go", skills[0].must_have_skills)
+        self.assertIn("PostgreSQL", skills[0].databases)
+
+    def test_turso_skill_cooccurrences_with_mock(self):
+        mock_client = MagicMock()
+        turso = TursoClient(client=mock_client)
+
+        class MockSkillsResult:
+            columns = (
+                "job_id", "title", "company", "experience_level",
+                "must_have_skills", "nice_to_have_skills", "frameworks",
+                "databases", "cloud_infra", "tools",
+            )
+            rows = [
+                ("j1", "Dev 1", "Co", "Mid", '["Python"]', '[]', '["FastAPI"]', '["PostgreSQL"]', '[]', '[]'),
+                ("j2", "Dev 2", "Co", "Mid", '["Python"]', '[]', '["FastAPI"]', '[]', '[]', '[]'),
+            ]
+
+        mock_client.execute.return_value = MockSkillsResult()
+        pairs = turso.get_top_skill_cooccurrences()
+        self.assertTrue(len(pairs) > 0)
+        top = pairs[0]
+        self.assertEqual(top["count"], 2)
+
+    def test_turso_record_and_get_generated_projects(self):
+        mock_client = MagicMock()
+        turso = TursoClient(client=mock_client)
+
+        row_id = turso.record_generated_project(
+            title="New Spec",
+            role="Backend Engineer",
+            tech_stack=["Python"],
+            spec_markdown="# Spec",
+        )
+        self.assertEqual(row_id, 1)
+
+        mock_client.execute.return_value.rows = [(1,)]
+        self.assertTrue(turso.has_generated_project("New Spec"))
+
+        class MockProjResult:
+            columns = ("id", "title", "role", "created_at")
+            rows = [(1, "New Spec", "Backend Engineer", "2026-10-11")]
+
+        mock_client.execute.return_value = MockProjResult()
+        projects = turso.get_generated_projects(limit=5)
+        self.assertEqual(len(projects), 1)
+        self.assertEqual(projects[0]["title"], "New Spec")
+
+
+class TestStorageFactory(unittest.TestCase):
+    def test_get_storage_falls_back_to_database_manager(self):
+        with patch.dict("os.environ", {}, clear=True):
+            storage = get_storage()
+            self.assertIsInstance(storage, DatabaseManager)
+
+    def test_get_storage_force_sqlite(self):
+        with patch.dict("os.environ", {"TURSO_DATABASE_URL": "https://test.turso.io", "TURSO_AUTH_TOKEN": "token"}):
+            storage = get_storage(force_sqlite=True, db_path=":memory:")
+            self.assertIsInstance(storage, DatabaseManager)
+
+    @patch("src.storage.TursoClient")
+    def test_get_storage_selects_turso_when_available(self, mock_turso_cls):
+        mock_turso = MagicMock()
+        mock_turso.is_available = True
+        mock_turso_cls.return_value = mock_turso
+
+        storage = get_storage(database_url="https://mock.turso.io", auth_token="token")
+        self.assertEqual(storage, mock_turso)
 
 
 

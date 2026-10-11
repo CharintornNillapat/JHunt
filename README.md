@@ -2,7 +2,7 @@
 ### Thailand Job Market Intelligence & Autonomous Portfolio Ideation Platform
 
 [![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.14-blue?logo=python&logoColor=white)](https://www.python.org/)
-[![Database](https://img.shields.io/badge/Storage-SQLite3%20(WAL%20Mode)-green?logo=sqlite&logoColor=white)](https://www.sqlite.org/)
+[![Database](https://img.shields.io/badge/Storage-Turso%20LibSQL%20%2F%20SQLite3-green?logo=sqlite&logoColor=white)](https://turso.tech/)
 [![Validation](https://img.shields.io/badge/Contracts-Pydantic%20v2-e92063?logo=pydantic&logoColor=white)](https://docs.pydantic.dev/)
 [![LLM](https://img.shields.io/badge/AI-Google%20GenAI%20(Gemini%202.0%20Flash)-8E75C2?logo=google&logoColor=white)](https://ai.google.dev/)
 [![CI/CD](https://img.shields.io/badge/Automation-GitHub%20Actions-2088FF?logo=github-actions&logoColor=white)](.github/workflows/scraper_cron.yml)
@@ -16,7 +16,7 @@
 
 1. **Ingesting live tech job listings** directly from platform APIs (JobsDB / SEEK JSON API) in seconds without headless browsers.
 2. **Filtering and alerting** software engineering opportunities instantly to Telegram with HTML-escaped formatting.
-3. **Persisting historical market records** in a local SQLite database (`data/market.db`) with relational integrity and conflict-free deduplication.
+3. **Persisting historical market records** directly into cloud Turso (LibSQL over HTTPS) as the Single Source of Truth (with offline local SQLite fallback) with relational integrity and conflict-free deduplication.
 4. **Extracting structured technology stacks** (languages, frameworks, databases, cloud, tools, and seniority levels) via Google Gemini 2.0 Flash and strict Pydantic v2 schemas.
 5. **Computing market co-occurrence matrices** to uncover high-affinity technology clusters (e.g. `Go + PostgreSQL + Docker + Redis` or `FastAPI + PostgreSQL + Kafka`).
 6. **Autonomously ideating and exporting enterprise-grade portfolio project specs** with YAML frontmatter directly to your local ideas repository:
@@ -38,7 +38,7 @@
   [ 2. Filtering & Idempotency ] ──> StateManager (seen_jobs.json, 90-day TTL)
              │                       Keyword / Seniority / Thai Location Regex Filters
              ▼
-  [ 3. Relational Persistence ]  ──> SQLite Storage (data/market.db)
+  [ 3. Relational Persistence ]  ──> Unified Storage: Turso Cloud / SQLite (data/market.db)
              │                       • jobs (raw payload, title, company, salary)
              │                       • skills_extracted (FK jobs.id, tech arrays)
              │                       • generated_projects (audit trail of blueprints)
@@ -103,8 +103,10 @@ JHunt/
 │   │   ├── base_scraper.py           # Pure ABC HTTP client contract
 │   │   └── jobsdb_api.py             # SEEK public JSON search API client
 │   ├── storage/                      # Persistence layer
-│   │   ├── __init__.py
-│   │   └── db.py                     # SQLite DatabaseManager with WAL & Foreign Keys
+│   │   ├── __init__.py               # Unified storage abstraction (get_storage())
+│   │   ├── turso_client.py           # Turso LibSQL client (Cloud SSoT over HTTPS)
+│   │   ├── db.py                     # SQLite DatabaseManager with WAL & Foreign Keys
+│   │   └── schema.py                 # Unified schema definitions & B-Tree indexes
 │   ├── extractor/                    # Structured LLM extraction
 │   │   ├── schemas.py                # Pydantic v2 ExtractedJob & ProjectIdeaSpec
 │   │   ├── text_sanitizer.py         # HTML/boilerplate pruner (English & Thai)
@@ -121,8 +123,8 @@ JHunt/
 │   └── notifier/                     # Alert dispatching
 │       ├── __init__.py
 │       └── telegram_notifier.py      # HTML-escaped Telegram client & Market Brief
-├── tests/                            # Automated test suite (41 tests)
-│   ├── test_storage.py               # SQLite schema & deduplication tests
+├── tests/                            # Automated test suite (94 tests)
+│   ├── test_storage.py               # SQLite & Turso unified schema & client tests
 │   ├── test_extractor.py             # Sanitizer & mock Gemini extraction tests
 │   ├── test_analyzer.py              # Role classifier & clustering tests
 │   ├── test_generator.py             # Template rendering & file export tests
@@ -242,7 +244,7 @@ python -m unittest discover tests
 
 Expected output:
 ```text
-Ran 41 tests in 1.15s
+Ran 94 tests in 5.71s
 OK
 ```
 

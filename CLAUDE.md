@@ -10,7 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) and AI assistants wh
 1. Scrapes job listings from Thailand job portals (e.g. JobsDB / SEEK API).
 2. Filters and deduplicates listings for junior and mid-level software engineering roles.
 3. Dispatches immediate alerts via Telegram (HTML-escaped).
-4. Persists normalized job and skill records into local SQLite storage (`data/market.db`).
+4. Persists normalized job and skill records into cloud Turso (LibSQL over HTTPS) as the single source of truth, with local SQLite fallback (`data/market.db`).
 5. Extracts structured tech stack attributes (languages, frameworks, databases, cloud, tools) via Google Gemini API (Free Tier) and Pydantic schemas.
 6. Computes skill frequency distributions and tech stack co-occurrence matrices.
 7. Automatically ideates and exports enterprise-grade portfolio project blueprints with YAML frontmatter to:
@@ -20,13 +20,13 @@ This file provides guidance to Claude Code (claude.ai/code) and AI assistants wh
 
 ## Operational Guardrails & Coding Standards
 
-1. **Cost Policy**: 100% Free Tier (Python stdlib, SQLite, Google GenAI Free Tier / Gemini 2.0 Flash / 1.5 Flash, Git). Never introduce paid external APIs or billable cloud dependencies.
+1. **Cost Policy**: 100% Free Tier (Python stdlib, SQLite, Turso Starter/Free, Google GenAI Free Tier / Gemini 2.0 Flash / 1.5 Flash, Git). Never introduce paid external APIs or billable cloud dependencies.
 2. **Pathing Policy**: Always use Python's `pathlib.Path(r"...")` for all Windows filesystem operations. Never use unescaped raw string literals with backslashes.
 3. **Single Developer Constitution**: Maintain all project guidelines, architectural rules, and coding standards exclusively in `CLAUDE.md`. **Do NOT create `GEMINI.md`**.
 4. **Task Tracking Ledger**: Track phased execution and task states in `docs/contexts/task-ledger.md`.
 5. **Modularity**: Code is structured into dedicated modular packages under `src/`:
    - `src/scraper`: Data collection and site scraper implementations.
-   - `src/storage`: SQLite database layer (`data/market.db`) and state management.
+   - `src/storage`: Unified storage abstraction (`get_storage()`), Turso LibSQL client (`turso_client.py`), and local SQLite database (`data/market.db`).
    - `src/extractor`: Text sanitizer, Gemini LLM client, and Pydantic schemas.
    - `src/analyzer`: Tech stack clustering, frequency, and co-occurrence matrices.
    - `src/generator`: Portfolio ideation engine and Jinja2 Markdown blueprint exporter.
@@ -103,7 +103,7 @@ scraper produced a job.
 `all(job.values())`, which inspected every value and so discarded any job with an empty `salary` —
 about 75% of JobsDB ads. Do not reintroduce that.
 
-### 2. State Management & SQLite Persistence
+### 2. State Management & Storage Persistence
 `StateManager.filter_new_jobs()` ([state_manager.py](state_manager.py)) marks jobs seen **in memory**
 as it dedupes, before any relevance/seniority/location/semantic filter runs.
 - A job dropped by a later filter is still marked seen, so loosening a filter later will **not**
@@ -112,10 +112,13 @@ as it dedupes, before any relevance/seniority/location/semantic filter runs.
   no-matches early `return` and an unhandled exception.
 - A job whose Telegram send **fails** is passed to `state.unmark()` by `notify_jobs`, so the next
   run retries it rather than losing the alert permanently.
-- `data/market.db` stores persistent relational records:
-  - `jobs`: Stores raw job records, titles, companies, URLs, timestamps.
-  - `skills_extracted`: Normalized canonical skills, frameworks, databases, cloud, tools, and experience level.
-  - `generated_projects`: Tracks generated portfolio blueprints and export file paths.
+- Unified storage layer (`get_storage()`):
+  - In production / CI (when `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` are set), writes and reads execute directly against **Turso (LibSQL over HTTPS)** as the single source of truth.
+  - If Turso credentials are missing or `force_sqlite=True`, seamlessly falls back to local SQLite (`data/market.db`).
+  - Tables:
+    - `jobs`: Stores raw job records, titles, companies, URLs, timestamps.
+    - `skills_extracted`: Normalized canonical skills, frameworks, databases, cloud, tools, and experience level.
+    - `generated_projects`: Tracks generated portfolio blueprints and export file paths.
 
 ### 3. Scraper Layer
 `BaseScraper` is a pure ABC — constructing a scraper opens no browser and acquires nothing needing
@@ -153,5 +156,5 @@ leaves no gap.
 ## CI & Automated Deployment
 
 `.github/workflows/scraper_cron.yml` — runs daily at 01:00 UTC (08:00 Bangkok), plus `workflow_dispatch`.
-`uv` (`astral-sh/setup-uv@v5`) with Python 3.11 and `requirements.txt`. State persistence uses split `actions/cache/restore@v4` + `actions/cache/save@v4`
-with rotating key `seen-jobs-state-v2-${{ github.run_id }}`.
+`uv` (`astral-sh/setup-uv@v5`) with Python 3.11 and `requirements.txt`. Deduplication state persistence uses split `actions/cache/restore@v4` + `actions/cache/save@v4`
+with rotating key `seen-jobs-state-v2-${{ github.run_id }}`. Production data ingestion writes directly to cloud Turso, eliminating runner SQLite cache.
