@@ -1,4 +1,9 @@
-import { createClient, type Client, type ResultSet } from "@libsql/client";
+import "server-only";
+import { cache } from "react";
+import { createClient, type Client } from "@libsql/client";
+import { formatDate, parseTechStack } from "./format";
+
+export { formatDate, parseTechStack };
 
 export interface GeneratedProject {
   id: number;
@@ -11,6 +16,8 @@ export interface GeneratedProject {
   created_at: string;
 }
 
+export type ProjectSummary = Omit<GeneratedProject, "spec_markdown">;
+
 let rawUrl = process.env.TURSO_DATABASE_URL?.trim();
 const authToken = process.env.TURSO_AUTH_TOKEN?.trim();
 
@@ -19,110 +26,41 @@ if (rawUrl?.startsWith("libsql://")) {
 }
 const url = rawUrl;
 
-export const isTursoConfigured = Boolean(url);
-
-// Dummy client fallback during build time or when environment variables are unset
-const dummyClient = {
-  async execute(): Promise<ResultSet> {
-    return {
-      columns: [],
-      rows: [],
-      rowsAffected: 0,
-      lastInsertRowid: undefined,
-    } as unknown as ResultSet;
-  },
-  async batch(): Promise<ResultSet[]> {
-    return [];
-  },
-  async transaction() {
-    throw new Error("Turso client not configured");
-  },
-  close() {},
-} as unknown as Client;
-
-let clientInstance: Client | null = null;
-
-if (url) {
-  try {
-    clientInstance = createClient({
+export const turso: Client | null = url
+  ? createClient({
       url,
       authToken: authToken || undefined,
-    });
-  } catch (error) {
-    console.warn("[Turso] Failed to initialize client, using fallback:", error);
-  }
-}
+    })
+  : null;
 
-export const turso: Client = clientInstance || dummyClient;
-
-export function parseTechStack(raw: string): string[] {
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) {
-      return parsed.map((item) => String(item).trim()).filter(Boolean);
-    }
-  } catch {
-    // fallback to comma separated
-  }
-  return raw
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
-
-export function formatDate(dateStr: string): string {
-
-  if (!dateStr) return "Recent";
-  try {
-    const d = new Date(dateStr);
-    if (isNaN(d.getTime())) return dateStr;
-    return d.toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
-  } catch {
-    return dateStr;
-  }
-}
+export const isTursoConfigured = Boolean(turso);
 
 export async function getAllProjects(): Promise<GeneratedProject[]> {
-
-  if (!url && !clientInstance) {
+  if (!turso) {
     return [];
   }
   try {
     const result = await turso.execute(
       "SELECT id, title, role, difficulty, domain, tech_stack, spec_markdown, created_at FROM generated_projects WHERE id IN (SELECT MAX(id) FROM generated_projects GROUP BY title) ORDER BY created_at DESC"
     );
-    const seenTitles = new Set<string>();
-    const deduplicated: GeneratedProject[] = [];
-    for (const row of result.rows) {
-      const title = String(row.title ?? "").trim();
-      if (!seenTitles.has(title)) {
-        seenTitles.add(title);
-        deduplicated.push({
-          id: Number(row.id),
-          title: String(row.title ?? ""),
-          role: String(row.role ?? ""),
-          difficulty: String(row.difficulty ?? "Intermediate"),
-          domain: String(row.domain ?? ""),
-          tech_stack: String(row.tech_stack ?? ""),
-          spec_markdown: String(row.spec_markdown ?? ""),
-          created_at: String(row.created_at ?? ""),
-        });
-      }
-    }
-    return deduplicated;
+    return result.rows.map((row) => ({
+      id: Number(row.id),
+      title: String(row.title ?? ""),
+      role: String(row.role ?? ""),
+      difficulty: String(row.difficulty ?? "Intermediate"),
+      domain: String(row.domain ?? ""),
+      tech_stack: String(row.tech_stack ?? ""),
+      spec_markdown: String(row.spec_markdown ?? ""),
+      created_at: String(row.created_at ?? ""),
+    }));
   } catch (err) {
     console.warn("[Turso] Could not fetch projects:", err);
     return [];
   }
 }
 
-export async function getProjectById(id: string | number): Promise<GeneratedProject | null> {
-  if (!url && !clientInstance) {
+export const getProjectById = cache(async (id: string | number): Promise<GeneratedProject | null> => {
+  if (!turso || !/^\d+$/.test(String(id))) {
     return null;
   }
   try {
@@ -148,7 +86,7 @@ export async function getProjectById(id: string | number): Promise<GeneratedProj
     console.warn(`[Turso] Could not fetch project ${id}:`, err);
     return null;
   }
-}
+});
 
 export interface MarketMetricItem {
   name: string;
@@ -164,61 +102,19 @@ export interface MarketAnalytics {
   clouds: MarketMetricItem[];
   databases: MarketMetricItem[];
   frameworks: MarketMetricItem[];
-  roles: MarketMetricItem[];
 }
 
-const DETERMINISTIC_FALLBACK_ANALYTICS: MarketAnalytics = {
-  totalJobs: 142,
-  totalSkills: 586,
-  totalBlueprints: 12,
-  languages: [
-    { name: "Python", count: 88, percentage: 62 },
-    { name: "TypeScript", count: 64, percentage: 45 },
-    { name: "Go", count: 46, percentage: 32 },
-    { name: "Java", count: 38, percentage: 27 },
-    { name: "SQL", count: 72, percentage: 51 },
-    { name: "C++", count: 18, percentage: 13 },
-  ],
-  clouds: [
-    { name: "AWS", count: 68, percentage: 48 },
-    { name: "Docker", count: 84, percentage: 59 },
-    { name: "Kubernetes", count: 44, percentage: 31 },
-    { name: "GCP", count: 28, percentage: 20 },
-    { name: "Terraform", count: 22, percentage: 15 },
-  ],
-  databases: [
-    { name: "PostgreSQL", count: 76, percentage: 54 },
-    { name: "Redis", count: 58, percentage: 41 },
-    { name: "Kafka", count: 36, percentage: 25 },
-    { name: "MySQL", count: 42, percentage: 30 },
-    { name: "MongoDB", count: 24, percentage: 17 },
-  ],
-  frameworks: [
-    { name: "FastAPI", count: 62, percentage: 44 },
-    { name: "React", count: 56, percentage: 39 },
-    { name: "Next.js", count: 42, percentage: 30 },
-    { name: "Django", count: 26, percentage: 18 },
-    { name: "Spring Boot", count: 22, percentage: 15 },
-  ],
-  roles: [
-    { name: "Backend Engineer", count: 58, percentage: 41 },
-    { name: "Fullstack Engineer", count: 36, percentage: 25 },
-    { name: "Data Engineer", count: 28, percentage: 20 },
-    { name: "AI / ML Engineer", count: 20, percentage: 14 },
-  ],
-};
-
-export async function getMarketAnalytics(): Promise<MarketAnalytics> {
-  if (!url && !clientInstance) {
-    return DETERMINISTIC_FALLBACK_ANALYTICS;
+export async function getMarketAnalytics(): Promise<MarketAnalytics | null> {
+  if (!turso) {
+    return null;
   }
 
   try {
     const [jobsRes, blueprintsRes, skillsRes] = await Promise.allSettled([
       turso.execute("SELECT COUNT(*) AS total FROM jobs"),
-      turso.execute("SELECT COUNT(*) AS total FROM generated_projects"),
+      turso.execute("SELECT COUNT(DISTINCT title) AS total FROM generated_projects"),
       turso.execute(
-        "SELECT must_have_skills, nice_to_have_skills, frameworks, databases, cloud_infra, tools FROM skills_extracted"
+        "SELECT must_have_skills, nice_to_have_skills, frameworks, databases, cloud_infra, tools FROM skills_extracted WHERE experience_level != 'Non-Tech'"
       ),
     ]);
 
@@ -236,12 +132,7 @@ export async function getMarketAnalytics(): Promise<MarketAnalytics> {
       skillsRes.status === "fulfilled" ? skillsRes.value.rows : [];
 
     if (skillsRows.length === 0) {
-      return {
-        ...DETERMINISTIC_FALLBACK_ANALYTICS,
-        totalJobs: totalJobsCount || DETERMINISTIC_FALLBACK_ANALYTICS.totalJobs,
-        totalBlueprints:
-          totalBlueprintsCount || DETERMINISTIC_FALLBACK_ANALYTICS.totalBlueprints,
-      };
+      return null;
     }
 
     const langCounter = new Map<string, number>();
@@ -323,16 +214,14 @@ export async function getMarketAnalytics(): Promise<MarketAnalytics> {
     return {
       totalJobs: totalJobsCount || skillsRows.length,
       totalSkills: totalSkillMentions,
-      totalBlueprints: totalBlueprintsCount || DETERMINISTIC_FALLBACK_ANALYTICS.totalBlueprints,
-      languages: toSortedItems(langCounter).length ? toSortedItems(langCounter) : DETERMINISTIC_FALLBACK_ANALYTICS.languages,
-      clouds: toSortedItems(cloudCounter).length ? toSortedItems(cloudCounter) : DETERMINISTIC_FALLBACK_ANALYTICS.clouds,
-      databases: toSortedItems(dbCounter).length ? toSortedItems(dbCounter) : DETERMINISTIC_FALLBACK_ANALYTICS.databases,
-      frameworks: toSortedItems(fwCounter).length ? toSortedItems(fwCounter) : DETERMINISTIC_FALLBACK_ANALYTICS.frameworks,
-      roles: DETERMINISTIC_FALLBACK_ANALYTICS.roles,
+      totalBlueprints: totalBlueprintsCount,
+      languages: toSortedItems(langCounter),
+      clouds: toSortedItems(cloudCounter),
+      databases: toSortedItems(dbCounter),
+      frameworks: toSortedItems(fwCounter),
     };
   } catch (err) {
-    console.warn("[Turso] Market analytics query failed, using deterministic fallback:", err);
-    return DETERMINISTIC_FALLBACK_ANALYTICS;
+    console.error("[Turso] Market analytics query failed:", err);
+    return null;
   }
 }
-

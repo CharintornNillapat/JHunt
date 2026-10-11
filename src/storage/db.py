@@ -245,6 +245,7 @@ class DatabaseManager:
                 SELECT s.*, j.title, j.company
                 FROM skills_extracted s
                 JOIN jobs j ON s.job_id = j.id
+                WHERE s.experience_level != 'Non-Tech'
                 ORDER BY s.extracted_at DESC;
             """)
             rows = cursor.fetchall()

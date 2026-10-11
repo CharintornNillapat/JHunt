@@ -11,7 +11,8 @@ import {
   SlidersHorizontal,
 } from "lucide-react";
 
-import { type GeneratedProject, formatDate, parseTechStack } from "@/lib/turso";
+import type { GeneratedProject } from "@/lib/turso";
+import { formatDate, parseTechStack } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import SpotlightCard from "@/components/SpotlightCard";
 
@@ -69,7 +70,7 @@ export default function BlueprintCatalog({ initialProjects }: BlueprintCatalogPr
       {/* Controls Bar: Role Tabs & Instant Search */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-white/[0.07]">
         {/* Animated Filter Tabs */}
-        <div className="flex items-center gap-1.5 p-1 rounded-lg bg-zinc-900/80 border border-white/[0.08] backdrop-blur-md overflow-x-auto">
+        <div className="flex items-center gap-1.5 p-1 rounded-lg bg-zinc-900 border border-white/[0.08] overflow-x-auto">
           {CATEGORIES.map((tab) => {
             const isActive = selectedCategory === tab.id;
             return (
@@ -101,6 +102,7 @@ export default function BlueprintCatalog({ initialProjects }: BlueprintCatalogPr
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
+            aria-label="Filter by tech, domain, or role"
             placeholder="Filter by tech, domain, or role..."
             className="w-full bg-zinc-900/60 border border-white/[0.08] focus:border-cyan-500/50 rounded-lg pl-9 pr-3 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-500 focus:outline-none transition-all"
           />

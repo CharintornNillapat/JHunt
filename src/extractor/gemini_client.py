@@ -11,18 +11,23 @@ import os
 import random
 import re
 import time
-from typing import Any, Optional, Tuple
+from typing import Any, Optional, Tuple, TypeVar
 
 from google import genai
+from google.genai import types
+from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
 _UNSET = object()
-DEFAULT_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
+DEFAULT_MODEL = (os.environ.get("GEMINI_MODEL") or "").strip() or "gemini-3.8-flash"
 FALLBACK_MODEL = "gemini-2.5-flash"
 DEFAULT_RATE_LIMIT_DELAY = 4.0  # Safe for 15 RPM free tier
 MAX_RETRIES = 4
 INITIAL_BACKOFF = 2.0
+REQUEST_TIMEOUT_MS = 30_000
+CIRCUIT_BREAK_AFTER = 3  # consecutive calls that exhausted every retry
+T = TypeVar("T", bound=BaseModel)
 
 
 class DailyQuotaExhaustedError(Exception):
@@ -67,7 +72,7 @@ def is_transient_error(err_str: str) -> Tuple[bool, bool, bool]:
         or "rate limit" in err_lower
         or "quota" in err_lower
     )
-    is_transient = is_503 or is_rate_limit or "timeout" in err_lower
+    is_transient = is_503 or is_rate_limit or "timeout" in err_lower or "timed out" in err_lower
     return is_transient, is_503, is_rate_limit
 
 
@@ -109,16 +114,20 @@ class BaseGeminiService:
         else:
             self.api_key = (api_key or "").strip()
 
-        chosen_model = (model_name or model or os.environ.get("GEMINI_MODEL", DEFAULT_MODEL)).strip()
+        chosen_model = (model_name or model or DEFAULT_MODEL).strip()
         self.model = chosen_model
         self.model_name = chosen_model
         self.rate_limit_delay = rate_limit_delay
         self._last_call_time: float = 0.0
+        self._consecutive_failures = 0
 
         if client is not _UNSET:
             self.client = client
         elif self.api_key:
-            self.client = genai.Client(api_key=self.api_key)
+            self.client = genai.Client(
+                api_key=self.api_key,
+                http_options=types.HttpOptions(timeout=REQUEST_TIMEOUT_MS),
+            )
         else:
             self.client = None
 
@@ -133,3 +142,49 @@ class BaseGeminiService:
     def _record_call(self) -> None:
         """Records timestamp of outbound call for throttling calculations."""
         self._last_call_time = time.monotonic()
+
+    def _generate(self, contents: str, config: types.GenerateContentConfig, schema: type[T]) -> Optional[T]:
+        """One structured call: retries, 503 model fallback, and a breaker that spans calls."""
+        if not self.client:
+            logger.warning(f"[{type(self).__name__}] No client configured; skipping generation.")
+            return None
+
+        if self._consecutive_failures >= CIRCUIT_BREAK_AFTER:
+            raise DailyQuotaExhaustedError(
+                f"Circuit open after {self._consecutive_failures} consecutive failed calls"
+            )
+
+        model, backoff, n503 = self.model, INITIAL_BACKOFF, 0
+        tag = type(self).__name__
+        for attempt in range(1, MAX_RETRIES + 1):
+            self._throttle()
+            self._record_call()
+            try:
+                resp = self.client.models.generate_content(model=model, contents=contents, config=config)
+                parsed = resp.parsed if (hasattr(resp, "parsed") and isinstance(resp.parsed, schema)) else None
+                if parsed is None and hasattr(resp, "text") and resp.text:
+                    parsed = schema.model_validate_json(resp.text)
+                if parsed is not None:
+                    self._consecutive_failures = 0
+                    return parsed
+                logger.warning(f"[{tag}] Attempt {attempt}: empty response.")
+            except Exception as e:
+                err = str(e)
+                if is_daily_quota_exhausted(err):
+                    raise DailyQuotaExhaustedError(err) from e
+                transient, is_503, _ = is_transient_error(err)
+                if not transient:
+                    logger.error(f"[{tag}] Non-transient error: {err[:200]}")
+                    break
+                if is_503:
+                    n503 += 1
+                    if n503 >= 2 and model != FALLBACK_MODEL:
+                        model = FALLBACK_MODEL
+                if attempt < MAX_RETRIES:
+                    sleep_s, backoff = calculate_backoff_sleep(is_503, n503, backoff)
+                    logger.warning(
+                        f"[{tag}] Transient error ({err[:120]}); retry {attempt}/{MAX_RETRIES} in {sleep_s:.1f}s on {model}."
+                    )
+                    time.sleep(sleep_s)
+        self._consecutive_failures += 1
+        return None

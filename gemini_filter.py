@@ -16,7 +16,7 @@ from google import genai
 from google.genai import types
 from pydantic import BaseModel, Field
 
-from src.extractor.gemini_client import DEFAULT_MODEL
+from src.extractor.gemini_client import DEFAULT_MODEL, REQUEST_TIMEOUT_MS
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +109,10 @@ def filter_semantically(jobs: List[Dict[str, Any]], config: Dict[str, Any]) -> L
         return jobs
 
     model = (config.get("gemini_model") or DEFAULT_MODEL).strip()
-    client = genai.Client(api_key=api_key)
+    client = genai.Client(
+        api_key=api_key,
+        http_options=types.HttpOptions(timeout=REQUEST_TIMEOUT_MS),
+    )
 
     keep_flags = {i: True for i in range(len(jobs))}
     judged = 0

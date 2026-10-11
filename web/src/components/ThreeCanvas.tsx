@@ -10,6 +10,8 @@ export default function ThreeCanvas() {
     const container = containerRef.current;
     if (!container) return;
 
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
     const width = container.clientWidth || window.innerWidth;
     const height = container.clientHeight || 540;
 
@@ -22,7 +24,7 @@ export default function ThreeCanvas() {
     const renderer = new THREE.WebGLRenderer({
       alpha: true,
       antialias: true,
-      powerPreference: "high-performance",
+      powerPreference: "low-power",
     });
     renderer.setSize(width, height);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -85,6 +87,22 @@ export default function ThreeCanvas() {
     const lineSegments = new THREE.LineSegments(linesGeometry, linesMaterial);
     scene.add(lineSegments);
 
+    // Reduced motion handling
+    if (reduceMotion) {
+      renderer.render(scene, camera);
+      return () => {
+        pointsGeometry.dispose();
+        pointsMaterial.dispose();
+        linesGeometry.dispose();
+        linesMaterial.dispose();
+        renderer.dispose();
+        renderer.forceContextLoss();
+        if (container.contains(renderer.domElement)) {
+          container.removeChild(renderer.domElement);
+        }
+      };
+    }
+
     // 4. Parallax State & Mouse Tracking
     let targetRotX = 0;
     let targetRotY = 0;
@@ -113,10 +131,15 @@ export default function ThreeCanvas() {
     });
     resizeObserver.observe(container);
 
-    // 6. Animation Loop
-    let animationFrameId: number;
+    // 6. Animation Loop with IntersectionObserver pausing
+    let animationFrameId = 0;
+    let isVisible = true;
 
     const animate = () => {
+      if (!isVisible) {
+        animationFrameId = 0;
+        return;
+      }
       animationFrameId = requestAnimationFrame(animate);
 
       // Smooth mouse parallax lerp
@@ -137,8 +160,8 @@ export default function ThreeCanvas() {
         positions[i3 + 2] += velocities[i3 + 2];
 
         if (Math.abs(positions[i3]) > BOUNDS.x) velocities[i3] *= -1;
-        if (Math.abs(positions[i3 + 1]) > BOUNDS.y) velocities[i3 + 1] *= -1;
-        if (Math.abs(positions[i3 + 2]) > BOUNDS.z) velocities[i3 + 2] *= -1;
+        if (Math.abs(positions[i3 + 1]) > BOUNDS.y) velocities[i3] *= -1;
+        if (Math.abs(positions[i3 + 2]) > BOUNDS.z) velocities[i3] *= -1;
       }
       pointsGeometry.attributes.position.needsUpdate = true;
 
@@ -179,12 +202,29 @@ export default function ThreeCanvas() {
       renderer.render(scene, camera);
     };
 
+    const intersectionObserver = new IntersectionObserver(
+      ([entry]) => {
+        const nowVisible = entry.isIntersecting;
+        if (nowVisible !== isVisible) {
+          isVisible = nowVisible;
+          if (isVisible && !animationFrameId) {
+            animate();
+          }
+        }
+      },
+      { threshold: 0 }
+    );
+    intersectionObserver.observe(container);
+
     animate();
 
     // 7. Cleanup on Unmount
     return () => {
-      cancelAnimationFrame(animationFrameId);
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+      }
       window.removeEventListener("mousemove", handleMouseMove);
+      intersectionObserver.disconnect();
       resizeObserver.disconnect();
 
       pointsGeometry.dispose();
@@ -192,6 +232,7 @@ export default function ThreeCanvas() {
       linesGeometry.dispose();
       linesMaterial.dispose();
       renderer.dispose();
+      renderer.forceContextLoss();
 
       if (container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement);

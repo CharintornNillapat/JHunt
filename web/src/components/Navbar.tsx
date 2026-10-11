@@ -28,10 +28,10 @@ export default function Navbar() {
   ];
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b border-white/[0.07] bg-[#08080a]/80 backdrop-blur-md">
+    <header className="sticky top-0 z-50 w-full border-b border-white/[0.07] bg-[#08080a]">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
         {/* Brand / Logo */}
-        <div className="flex items-center gap-8">
+        <div className="flex items-center gap-4 sm:gap-8">
           <Link href="/" className="flex items-center gap-3 group">
             <div className="h-9 w-9 rounded-lg bg-gradient-to-tr from-cyan-500 via-sky-600 to-indigo-600 flex items-center justify-center shadow-lg shadow-cyan-500/20 group-hover:scale-105 transition-transform duration-200">
               <Terminal className="h-4.5 w-4.5 text-white" />
@@ -46,8 +46,8 @@ export default function Navbar() {
             </div>
           </Link>
 
-          {/* Navigation Links with animated active pill */}
-          <nav className="hidden md:flex items-center gap-1.5 p-1 rounded-lg bg-zinc-900/60 border border-white/[0.06]">
+          {/* Navigation Links with animated active pill (functional on mobile and desktop) */}
+          <nav className="flex items-center gap-1.5 p-1 rounded-lg bg-zinc-900 border border-white/[0.06]">
             {navItems.map((item) => {
               const Icon = item.icon;
               const isActive =
@@ -59,8 +59,9 @@ export default function Navbar() {
                 <Link
                   key={item.href}
                   href={item.href}
+                  aria-label={item.label}
                   className={cn(
-                    "relative flex items-center gap-2 px-3.5 py-1.5 rounded-md text-xs font-medium transition-colors duration-200",
+                    "relative flex items-center gap-2 px-2.5 sm:px-3.5 py-1.5 rounded-md text-xs font-medium transition-colors duration-200",
                     isActive ? "text-cyan-300" : "text-zinc-400 hover:text-zinc-200"
                   )}
                 >
@@ -72,28 +73,20 @@ export default function Navbar() {
                     />
                   )}
                   <Icon className="h-3.5 w-3.5 relative z-10" />
-                  <span className="relative z-10">{item.label}</span>
+                  <span className="relative z-10 hidden sm:inline">{item.label}</span>
                 </Link>
               );
             })}
           </nav>
         </div>
 
-        {/* Live System Telemetry Indicator & GitHub */}
+        {/* GitHub link (mock idle LED pill removed) */}
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-zinc-900/90 border border-emerald-500/20 text-emerald-400 text-[11px] font-mono shadow-inner">
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
-            </span>
-            <span className="tracking-wide font-medium">PIPELINE IDLE / CRON 08:00 ICT</span>
-          </div>
-
           <a
             href="https://github.com/CharintornNillapat/JHunt"
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-zinc-900/80 border border-white/[0.08] hover:border-zinc-700 text-zinc-300 hover:text-white transition-all text-xs font-medium"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-zinc-900 border border-white/[0.08] hover:border-zinc-700 text-zinc-300 hover:text-white transition-all text-xs font-medium"
           >
             <GithubIcon className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">GitHub</span>

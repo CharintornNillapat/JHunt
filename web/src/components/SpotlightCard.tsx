@@ -35,7 +35,7 @@ export default function SpotlightCard({
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       className={cn(
-        "relative rounded-xl border border-white/[0.07] bg-[#0d0e12]/80 backdrop-blur-md overflow-hidden transition-all duration-300 group",
+        "relative rounded-xl border border-white/[0.07] bg-[#0d0e12] overflow-hidden transition-all duration-300 group",
         className
       )}
       {...props}

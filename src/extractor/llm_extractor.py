@@ -141,95 +141,13 @@ class GeminiExtractor(BaseGeminiService):
             temperature=0.1,
         )
 
-        current_model = self.model
-        consecutive_503 = 0
-        backoff = INITIAL_BACKOFF
-
-        for attempt in range(1, MAX_RETRIES + 1):
-            self._throttle()
-            try:
-                self._last_call_time = time.monotonic()
-                response = self.client.models.generate_content(
-                    model=current_model,
-                    contents=prompt,
-                    config=config,
-                )
-
-                extracted: Optional[ExtractedJob] = None
-                # Check parsed object first
-                if hasattr(response, "parsed") and isinstance(response.parsed, ExtractedJob):
-                    extracted = response.parsed
-                elif hasattr(response, "text") and response.text:
-                    extracted = ExtractedJob.model_validate_json(response.text)
-
-                if extracted is not None:
-                    # Fill fallback metadata if missing from model output
-                    if not extracted.job_title and fallback_title:
-                        extracted.job_title = fallback_title
-                    if not extracted.company and fallback_company:
-                        extracted.company = fallback_company
-                    return extracted
-
-                logger.warning(f"[GeminiExtractor] Attempt {attempt}: Empty or unparseable response.")
-
-            except Exception as e:
-                err_str = str(e)
-                if is_daily_quota_exhausted(err_str):
-                    logger.error(
-                        f"[GeminiExtractor] Gemini daily quota exhausted ({err_str[:160]}). "
-                        "Failing fast without retrying."
-                    )
-                    raise DailyQuotaExhaustedError(f"Daily quota exhausted: {err_str}") from e
-
-                is_503 = "503" in err_str or "service unavailable" in err_str.lower() or "unavailable" in err_str.lower()
-                is_rate_limit = (
-                    "429" in err_str
-                    or "RESOURCE_EXHAUSTED" in err_str
-                    or "rate limit" in err_str.lower()
-                    or "quota" in err_str.lower()
-                )
-                is_transient = is_503 or is_rate_limit or "timeout" in err_str.lower()
-
-                if is_503:
-                    consecutive_503 += 1
-                    # Fallback model: if gemini-3.8-flash returns 503 after 2 attempts, fall back to gemini-2.5-flash
-                    if consecutive_503 >= 2 and current_model == "gemini-3.8-flash":
-                        logger.warning(
-                            f"[GeminiExtractor] Model {current_model} received {consecutive_503} consecutive 503 errors. "
-                            f"Falling back to {FALLBACK_MODEL} for attempt {attempt + 1}."
-                        )
-                        current_model = FALLBACK_MODEL
-
-                if is_transient and attempt < MAX_RETRIES:
-                    if is_503:
-                        wait_schedule = [5.0, 10.0, 20.0]
-                        base_wait = wait_schedule[min(consecutive_503 - 1, len(wait_schedule) - 1)]
-                        jitter = random.uniform(0.5, 2.0)
-                        sleep_time = base_wait + jitter
-                    else:
-                        jitter = random.uniform(0.2, 1.0)
-                        sleep_time = backoff + jitter
-                        backoff *= 2.0
-
-                    logger.warning(
-                        f"[GeminiExtractor] Transient error ({err_str[:120]}). "
-                        f"Retrying in {sleep_time:.1f}s (attempt {attempt}/{MAX_RETRIES}, model: {current_model})..."
-                    )
-                    time.sleep(sleep_time)
-                    continue
-
-                if is_503:
-                    logger.warning(
-                        f"[GeminiExtractor] Retries exhausted for job '{fallback_title}' due to 503 Service Unavailable. "
-                        "Proceeding to next job."
-                    )
-                else:
-                    logger.error(f"[GeminiExtractor] Error extracting job (attempt {attempt}): {e}")
-
-                if not is_transient:
-                    break
-
-        return None
+        extracted = self._generate(prompt, config, ExtractedJob)
+        if extracted is not None:
+            if not extracted.job_title and fallback_title:
+                extracted.job_title = fallback_title
+            if not extracted.company and fallback_company:
+                extracted.company = fallback_company
+        return extracted
 
 
 def process_unprocessed_jobs(

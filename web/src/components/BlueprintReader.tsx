@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -16,7 +16,8 @@ import {
   Gauge,
   Hash,
 } from "lucide-react";
-import { type GeneratedProject, formatDate, parseTechStack } from "@/lib/turso";
+import type { GeneratedProject } from "@/lib/turso";
+import { formatDate, parseTechStack } from "@/lib/format";
 
 interface BlueprintReaderProps {
   project: GeneratedProject;
@@ -39,8 +40,8 @@ function CodeBlockComponent({
 
   return (
     <div className="relative my-6 rounded-xl border border-white/[0.08] bg-[#0c0d12] overflow-hidden shadow-2xl">
-      {/* Terminal Header Bar with macOS dots */}
-      <div className="flex items-center justify-between px-4 py-2.5 bg-zinc-900/90 border-b border-white/[0.06] select-none">
+      {/* Terminal Header Bar */}
+      <div className="flex items-center justify-between px-4 py-2.5 bg-zinc-900 border-b border-white/[0.06] select-none">
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1.5">
             <span className="h-2.5 w-2.5 rounded-full bg-[#ef4444]" />
@@ -127,18 +128,142 @@ export default function BlueprintReader({ project }: BlueprintReaderProps) {
     URL.revokeObjectURL(url);
   };
 
+  // P1-1: Strip YAML frontmatter and duplicate initial H1 title
+  const cleanMarkdown = useMemo(() => {
+    return (project.spec_markdown || "")
+      .replace(/^---\n[\s\S]*?\n---\n+/, "")
+      .replace(/^# .*\n+/, "");
+  }, [project.spec_markdown]);
+
+  // P1-2: Memoize parsed markdown to prevent re-parsing on scroll events
+  const renderedMarkdown = useMemo(() => {
+    return (
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          code(props) {
+            const { children, className, ...rest } = props;
+            const match = /language-(\w+)/.exec(className || "");
+            const codeString = String(children).replace(/\n$/, "");
+            const isInline = !match && !codeString.includes("\n");
+
+            if (isInline) {
+              return (
+                <code
+                  className="font-mono text-cyan-300 bg-zinc-900 border border-white/[0.08] px-1.5 py-0.5 rounded text-[12px]"
+                  {...rest}
+                >
+                  {children}
+                </code>
+              );
+            }
+
+            return (
+              <CodeBlockComponent
+                codeString={codeString}
+                language={match ? match[1] : ""}
+              />
+            );
+          },
+          blockquote({ children }) {
+            return (
+              <blockquote className="border-l-2 border-cyan-500/80 bg-cyan-950/20 py-3 px-4 rounded-r-lg my-5 text-zinc-300 font-sans not-italic">
+                {children}
+              </blockquote>
+            );
+          },
+          table({ children }) {
+            return (
+              <div className="overflow-x-auto my-6 rounded-xl border border-white/[0.08] bg-[#0c0d12]">
+                <table className="w-full text-left text-xs sm:text-sm border-collapse">
+                  {children}
+                </table>
+              </div>
+            );
+          },
+          th({ children }) {
+            return (
+              <th className="border-b border-white/[0.08] bg-zinc-900 px-4 py-3 font-mono text-xs uppercase tracking-wider text-zinc-300">
+                {children}
+              </th>
+            );
+          },
+          td({ children }) {
+            return (
+              <td className="border-b border-white/[0.04] px-4 py-2.5 text-zinc-300 font-sans">
+                {children}
+              </td>
+            );
+          },
+          h1({ children }) {
+            return (
+              <h1 className="text-2xl sm:text-3xl font-medium tracking-tight text-zinc-50 pb-3 border-b border-white/[0.08] mt-8 mb-4">
+                {children}
+              </h1>
+            );
+          },
+          h2({ children }) {
+            return (
+              <h2 className="text-xl sm:text-2xl font-medium tracking-tight text-zinc-100 pb-2 border-b border-white/[0.06] mt-8 mb-3">
+                {children}
+              </h2>
+            );
+          },
+          h3({ children }) {
+            return (
+              <h3 className="text-lg font-medium tracking-tight text-zinc-200 mt-6 mb-2">
+                {children}
+              </h3>
+            );
+          },
+          p({ children }) {
+            return (
+              <p className="text-zinc-300 leading-relaxed my-3 font-sans text-sm sm:text-base">
+                {children}
+              </p>
+            );
+          },
+          ul({ children }) {
+            return (
+              <ul className="list-disc list-outside space-y-1.5 my-3 text-zinc-300 text-sm sm:text-base pl-5">
+                {children}
+              </ul>
+            );
+          },
+          ol({ children }) {
+            return (
+              <ol className="list-decimal list-outside space-y-1.5 my-3 text-zinc-300 text-sm sm:text-base pl-5">
+                {children}
+              </ol>
+            );
+          },
+          li({ children }) {
+            return (
+              <li className="text-zinc-300 leading-relaxed">{children}</li>
+            );
+          },
+          hr() {
+            return <hr className="my-8 border-white/[0.08]" />;
+          },
+        }}
+      >
+        {cleanMarkdown || "*No specification markdown content available.*"}
+      </ReactMarkdown>
+    );
+  }, [cleanMarkdown]);
+
   return (
     <div className="min-h-screen bg-[#08080a] text-zinc-200 flex flex-col relative">
       {/* 1. Sticky Reading Progress Bar */}
-      <div className="fixed top-0 left-0 right-0 h-[2px] z-[60] bg-zinc-900/60 pointer-events-none">
+      <div className="fixed top-0 left-0 right-0 h-[2px] z-[60] bg-zinc-900 pointer-events-none">
         <div
-          className="h-full bg-gradient-to-r from-cyan-500 via-sky-400 to-indigo-500 transition-all duration-75"
+          className="h-full bg-gradient-to-r from-cyan-500 via-sky-400 to-indigo-500 transition-all duration-75 motion-reduce:transition-none"
           style={{ width: `${scrollProgress}%` }}
         />
       </div>
 
-      {/* 2. Sticky Action Sub-Header */}
-      <header className="sticky top-0 z-40 bg-[#08080a]/90 backdrop-blur-md border-b border-white/[0.07]">
+      {/* 2. Sticky Action Sub-Header (P1-3: sticky top-16 so it does not slide under top-0 Navbar) */}
+      <header className="sticky top-16 z-40 bg-[#08080a] border-b border-white/[0.07]">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 h-14 flex items-center justify-between">
           {/* Breadcrumb Navigation */}
           <div className="flex items-center gap-3">
@@ -159,7 +284,7 @@ export default function BlueprintReader({ project }: BlueprintReaderProps) {
           <div className="flex items-center gap-2">
             <button
               onClick={handleCopySpec}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono font-medium bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-white/[0.08] transition-all"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono font-medium bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-white/[0.08] transition-all"
             >
               {copiedSpec ? (
                 <>
@@ -211,7 +336,7 @@ export default function BlueprintReader({ project }: BlueprintReaderProps) {
           </h1>
 
           {/* Metadata Architecture HUD Bar */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 rounded-xl border border-white/[0.07] bg-[#0c0d12]/90 backdrop-blur-md font-mono text-xs">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 rounded-xl border border-white/[0.07] bg-[#0c0d12] font-mono text-xs">
             <div>
               <span className="text-[10px] text-zinc-500 uppercase block mb-1">
                 Target Role
@@ -271,118 +396,7 @@ export default function BlueprintReader({ project }: BlueprintReaderProps) {
       {/* 4. Insulated Spec Reading Slab */}
       <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-10 flex-1 w-full bg-[#08080a]">
         <article className="prose prose-invert prose-cyan max-w-none">
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
-            components={{
-              code(props) {
-                const { children, className, ...rest } = props;
-                const match = /language-(\w+)/.exec(className || "");
-                const codeString = String(children).replace(/\n$/, "");
-                const isInline = !match && !codeString.includes("\n");
-
-                if (isInline) {
-                  return (
-                    <code
-                      className="font-mono text-cyan-300 bg-zinc-900/90 border border-white/[0.08] px-1.5 py-0.5 rounded text-[12px]"
-                      {...rest}
-                    >
-                      {children}
-                    </code>
-                  );
-                }
-
-                return (
-                  <CodeBlockComponent
-                    codeString={codeString}
-                    language={match ? match[1] : ""}
-                  />
-                );
-              },
-              blockquote({ children }) {
-                return (
-                  <blockquote className="border-l-2 border-cyan-500/80 bg-cyan-950/20 py-3 px-4 rounded-r-lg my-5 text-zinc-300 font-sans not-italic">
-                    {children}
-                  </blockquote>
-                );
-              },
-              table({ children }) {
-                return (
-                  <div className="overflow-x-auto my-6 rounded-xl border border-white/[0.08] bg-[#0c0d12]">
-                    <table className="w-full text-left text-xs sm:text-sm border-collapse">
-                      {children}
-                    </table>
-                  </div>
-                );
-              },
-              th({ children }) {
-                return (
-                  <th className="border-b border-white/[0.08] bg-zinc-900/80 px-4 py-3 font-mono text-xs uppercase tracking-wider text-zinc-300">
-                    {children}
-                  </th>
-                );
-              },
-              td({ children }) {
-                return (
-                  <td className="border-b border-white/[0.04] px-4 py-2.5 text-zinc-300 font-sans">
-                    {children}
-                  </td>
-                );
-              },
-              h1({ children }) {
-                return (
-                  <h1 className="text-2xl sm:text-3xl font-medium tracking-tight text-zinc-50 pb-3 border-b border-white/[0.08] mt-8 mb-4">
-                    {children}
-                  </h1>
-                );
-              },
-              h2({ children }) {
-                return (
-                  <h2 className="text-xl sm:text-2xl font-medium tracking-tight text-zinc-100 pb-2 border-b border-white/[0.06] mt-8 mb-3">
-                    {children}
-                  </h2>
-                );
-              },
-              h3({ children }) {
-                return (
-                  <h3 className="text-lg font-medium tracking-tight text-zinc-200 mt-6 mb-2">
-                    {children}
-                  </h3>
-                );
-              },
-              p({ children }) {
-                return (
-                  <p className="text-zinc-300 leading-relaxed my-3 font-sans text-sm sm:text-base">
-                    {children}
-                  </p>
-                );
-              },
-              ul({ children }) {
-                return (
-                  <ul className="list-disc list-outside space-y-1.5 my-3 text-zinc-300 text-sm sm:text-base pl-5">
-                    {children}
-                  </ul>
-                );
-              },
-              ol({ children }) {
-                return (
-                  <ol className="list-decimal list-outside space-y-1.5 my-3 text-zinc-300 text-sm sm:text-base pl-5">
-                    {children}
-                  </ol>
-                );
-              },
-              li({ children }) {
-                return (
-                  <li className="text-zinc-300 leading-relaxed">{children}</li>
-                );
-              },
-              hr() {
-                return <hr className="my-8 border-white/[0.08]" />;
-              },
-            }}
-          >
-            {project.spec_markdown ||
-              "*No specification markdown content available.*"}
-          </ReactMarkdown>
+          {renderedMarkdown}
         </article>
 
         {/* Bottom Navigation */}
@@ -406,7 +420,7 @@ export default function BlueprintReader({ project }: BlueprintReaderProps) {
       {/* Footer */}
       <footer className="border-t border-white/[0.07] bg-[#08080a] py-6 text-center text-xs text-zinc-500 font-mono">
         <div className="max-w-4xl mx-auto px-4">
-          JHUNT ARCHITECTURE ENGINE &bull; DETERMINISTIC PORTFOLIO SPECIFICATION
+          JHUNT ARCHITECTURE ENGINE &bull; PORTFOLIO ARCHITECTURE SPECIFICATION
         </div>
       </footer>
     </div>

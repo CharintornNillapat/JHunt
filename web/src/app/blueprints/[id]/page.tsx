@@ -3,6 +3,11 @@ import { getProjectById } from "@/lib/turso";
 import BlueprintReader from "@/components/BlueprintReader";
 
 export const revalidate = 60;
+export const dynamicParams = true;
+
+export async function generateStaticParams() {
+  return [];
+}
 
 type Props = {
   params: Promise<{ id: string }>;

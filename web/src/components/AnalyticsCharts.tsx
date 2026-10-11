@@ -44,7 +44,7 @@ function CustomBarTooltip({
   if (active && payload && payload.length) {
     const data = payload[0].payload;
     return (
-      <div className="rounded-lg bg-[#0c0d12]/95 border border-white/10 px-3.5 py-2.5 text-xs shadow-2xl backdrop-blur-md">
+      <div className="rounded-lg bg-[#0c0d12] border border-white/10 px-3.5 py-2.5 text-xs shadow-2xl">
         <div className="font-semibold text-zinc-100">{data.name}</div>
         <div className="font-mono text-cyan-400 mt-1 flex items-center gap-1.5">
           <span>{data.count} mentions</span>
@@ -68,7 +68,7 @@ function CustomPieTooltip({
   if (active && payload && payload.length) {
     const data = payload[0].payload;
     return (
-      <div className="rounded-lg bg-[#0c0d12]/95 border border-white/10 px-3.5 py-2.5 text-xs shadow-2xl backdrop-blur-md">
+      <div className="rounded-lg bg-[#0c0d12] border border-white/10 px-3.5 py-2.5 text-xs shadow-2xl">
         <div className="font-semibold text-zinc-100">{data.name}</div>
         <div className="font-mono text-indigo-400 mt-1">
           {data.count} positions ({data.percentage ?? 0}%)
@@ -218,7 +218,7 @@ export default function AnalyticsCharts({ analytics }: AnalyticsChartsProps) {
                 Persistence & Storage Engines
               </h4>
             </div>
-            <span className="text-[10px] font-mono text-zinc-500">Live P95</span>
+            <span className="text-[10px] font-mono text-zinc-500">Frequency Rank</span>
           </div>
           <div className="space-y-3.5">
             {analytics.databases.map((db) => (
@@ -247,7 +247,7 @@ export default function AnalyticsCharts({ analytics }: AnalyticsChartsProps) {
                 Application Frameworks
               </h4>
             </div>
-            <span className="text-[10px] font-mono text-zinc-500">Live P95</span>
+            <span className="text-[10px] font-mono text-zinc-500">Frequency Rank</span>
           </div>
           <div className="space-y-3.5">
             {analytics.frameworks.map((fw) => (

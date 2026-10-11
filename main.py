@@ -293,6 +293,7 @@ def run_full_pipeline(
 
         if final_jobs and notifier:
             results["alerted"] = notify_jobs(final_jobs, notifier, state)
+        state.save()  # alerts are out; don't make dedupe depend on the slow Gemini stages
 
         # Step 4: Structured LLM Extraction on unprocessed jobs (enforce default cap)
         extraction_limit = limit if limit is not None else DEFAULT_EXTRACTION_LIMIT

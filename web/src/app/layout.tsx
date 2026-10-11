@@ -16,7 +16,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "JHunt | Market Intelligence & AI Blueprint Hub",
   description:
-    "Deterministic portfolio architecture specifications derived from live Thailand tech demand signals.",
+    "Portfolio architecture specifications derived from live Thailand tech demand signals.",
 };
 
 export default function RootLayout({

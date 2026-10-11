@@ -17,6 +17,7 @@ from google.genai import types
 
 from src.extractor.gemini_client import (
     BaseGeminiService,
+    DailyQuotaExhaustedError,
     is_daily_quota_exhausted,
     is_transient_error,
     calculate_backoff_sleep,
@@ -81,83 +82,15 @@ Return structured JSON matching the ProjectIdeaSpec schema."""
             temperature=0.2,
         )
 
-        current_model = self.model
-        consecutive_503 = 0
-        backoff = INITIAL_BACKOFF
-        for attempt in range(1, MAX_RETRIES + 1):
-            self._throttle()
-            try:
-                self._last_call_time = time.monotonic()
-                response = self.client.models.generate_content(
-                    model=current_model,
-                    contents=user_prompt,
-                    config=config,
-                )
-
-                spec: Optional[ProjectIdeaSpec] = None
-                if hasattr(response, "parsed") and isinstance(response.parsed, ProjectIdeaSpec):
-                    spec = response.parsed
-                elif hasattr(response, "text") and response.text:
-                    spec = ProjectIdeaSpec.model_validate_json(response.text)
-
-                if spec is not None:
-                    # Ensure tech stack includes requested stack elements
-                    merged_stack = sorted(set(spec.target_tech_stack + tech_stack))
-                    spec.target_tech_stack = merged_stack
-                    return spec
-
-                logger.warning(f"[IdeationEngine] Attempt {attempt}: Received empty spec response.")
-
-            except Exception as e:
-                err_str = str(e)
-                if is_daily_quota_exhausted(err_str):
-                    logger.warning(
-                        f"[IdeationEngine] Gemini daily quota exhausted ({err_str[:120]}). "
-                        "Immediately falling back to curated archetype spec without retrying."
-                    )
-                    return self._build_fallback_spec(target_role, tech_stack, domain_hint)
-
-                is_503 = "503" in err_str or "service unavailable" in err_str.lower() or "unavailable" in err_str.lower()
-                is_rate_limit = (
-                    "429" in err_str
-                    or "RESOURCE_EXHAUSTED" in err_str
-                    or "rate limit" in err_str.lower()
-                    or "quota" in err_str.lower()
-                )
-                is_transient = is_503 or is_rate_limit or "timeout" in err_str.lower()
-
-                if is_503:
-                    consecutive_503 += 1
-                    if consecutive_503 >= 2 and current_model == "gemini-3.8-flash":
-                        logger.warning(
-                            f"[IdeationEngine] Model {current_model} received {consecutive_503} consecutive 503 errors. "
-                            f"Falling back to {FALLBACK_MODEL} for subsequent attempts."
-                        )
-                        current_model = FALLBACK_MODEL
-
-                if is_transient and attempt < MAX_RETRIES:
-                    if is_503:
-                        wait_schedule = [5.0, 10.0, 20.0]
-                        base_wait = wait_schedule[min(consecutive_503 - 1, len(wait_schedule) - 1)]
-                        jitter = random.uniform(0.5, 2.0)
-                        sleep_time = base_wait + jitter
-                    else:
-                        jitter = random.uniform(0.2, 1.0)
-                        sleep_time = backoff + jitter
-                        backoff *= 2.0
-
-                    logger.warning(
-                        f"[IdeationEngine] Transient error ({err_str[:120]}). Retrying in {sleep_time:.1f}s (model: {current_model})..."
-                    )
-                    time.sleep(sleep_time)
-                    continue
-
-                logger.error(f"[IdeationEngine] Generation error (attempt {attempt}): {e}")
-                if not is_transient:
-                    break
-
-        logger.warning("[IdeationEngine] API calls failed; falling back to curated archetype spec.")
-        return self._build_fallback_spec(target_role, tech_stack, domain_hint)
+        try:
+            spec = self._generate(user_prompt, config, ProjectIdeaSpec)
+        except DailyQuotaExhaustedError:
+            spec = None
+        if spec is None:
+            logger.warning("[IdeationEngine] Gemini unavailable; using curated archetype spec.")
+            return self._build_fallback_spec(target_role, tech_stack, domain_hint)
+        spec.target_tech_stack = sorted(set(spec.target_tech_stack + tech_stack))
+        return spec
 
     def _build_fallback_spec(
         self,
