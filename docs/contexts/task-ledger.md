@@ -89,7 +89,8 @@ Elevate `JHunt` from a keyword scraper and Telegram alerter into a production-gr
 - [x] **CI Acceleration**: Migrated GitHub Actions workflow (`scraper_cron.yml`) to `uv` (`astral-sh/setup-uv@v5`), cutting CI runner startup time to sub-5s.
 - [x] **Frontend Code-Splitting**: Dynamic import of Recharts in `web/` with dark Obsidian loading skeleton.
 - [x] **Storage SSoT Migration**: Established Turso (LibSQL over HTTPS) as Single Source of Truth for production data ingestion, with SQLite fallback, eliminating CI runner SQLite cache.
-- [x] Comprehensive test suite expanded to 94 tests with 100% pass rate.
+- [x] **LLM Gateway Timeout Resilience**: Classified HTTP 504, 502, 500, and DEADLINE_EXCEEDED as transient errors in `gemini_client.py` and triggered immediate fallback to `gemini-2.5-flash` with exponential backoff.
+- [x] Comprehensive test suite expanded to 98 tests with 100% pass rate.
 
 ---
 

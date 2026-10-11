@@ -78,6 +78,16 @@ class TestDatabaseManager(unittest.TestCase):
         for idx in EXPECTED_INDEXES:
             self.assertIn(idx, indexes, f"Index {idx} should exist after init_db()")
 
+    def test_skills_extracted_columns_and_index_parity(self):
+        self.db.init_db()
+        conn = sqlite3.connect(self.db_path)
+        try:
+            cols = {row[1] for row in conn.execute("PRAGMA table_info(skills_extracted)")}
+        finally:
+            conn.close()
+        for expected_col in ("id", "job_id", "skill_name", "category", "experience_level"):
+            self.assertIn(expected_col, cols, f"Column {expected_col} should exist in skills_extracted")
+
     def test_save_job_and_duplicate_prevention(self):
         job_data = {
             "id": "job_001",

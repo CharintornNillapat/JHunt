@@ -15,6 +15,9 @@ from src.extractor.gemini_client import (
     CIRCUIT_BREAK_AFTER,
     DailyQuotaExhaustedError,
     is_daily_quota_exhausted,
+    is_deadline_or_timeout_error,
+    is_transient_error,
+    _is_transient_error,
 )
 from src.extractor.schemas import BatchExtractedJob, ExtractedJob
 from src.extractor.text_cleaner import clean_job_description
@@ -357,6 +360,72 @@ class TestGeminiExtractor(unittest.TestCase):
         calls = self.mock_client.models.generate_content.call_args_list
         self.assertEqual([c[1]["model"] for c in calls], ["gemini-3.8-flash", "gemini-3.8-flash", "gemini-2.5-flash"])
         self.assertEqual(mock_sleep.call_count, 2)
+
+    def test_extract_batch_504_fallback_to_gemini_2_5_flash(self):
+        self.mock_client.models.generate_content.side_effect = [
+            Exception("504 Gateway Timeout"),
+            self._respond([_answer(0, must_have_skills=["Go", "Docker"])]),
+        ]
+
+        with patch("time.sleep") as mock_sleep:
+            results = self.extractor.extract_batch([_job(0)])
+
+        self.assertIn("job_000", results)
+        calls = self.mock_client.models.generate_content.call_args_list
+        self.assertEqual([c[1]["model"] for c in calls], ["gemini-3.8-flash", "gemini-2.5-flash"])
+        self.assertEqual(mock_sleep.call_count, 1)
+
+    def test_extract_batch_deadline_exceeded_fallback_to_gemini_2_5_flash(self):
+        self.mock_client.models.generate_content.side_effect = [
+            Exception("DEADLINE_EXCEEDED: The request exceeded the deadline"),
+            self._respond([_answer(0, must_have_skills=["Kubernetes"])]),
+        ]
+
+        with patch("time.sleep") as mock_sleep:
+            results = self.extractor.extract_batch([_job(0)])
+
+        self.assertIn("job_000", results)
+        calls = self.mock_client.models.generate_content.call_args_list
+        self.assertEqual([c[1]["model"] for c in calls], ["gemini-3.8-flash", "gemini-2.5-flash"])
+        self.assertEqual(mock_sleep.call_count, 1)
+
+    def test_is_transient_error_classification(self):
+        # 504 / Gateway Timeout / DEADLINE_EXCEEDED -> transient & triggers fallback
+        for err in [
+            "504 Gateway Timeout",
+            "HTTP 504: gateway timeout",
+            "DEADLINE_EXCEEDED: Deadline exceeded",
+            "deadline exceeded while processing",
+        ]:
+            info = is_transient_error(err)
+            self.assertTrue(bool(info), f"Expected {err} to evaluate as transient (True)")
+            self.assertTrue(info.is_transient, f"Expected {err} to be transient")
+            self.assertTrue(info.is_504_or_deadline, f"Expected {err} to be 504 or deadline exceeded")
+            self.assertTrue(is_deadline_or_timeout_error(err))
+            self.assertTrue(_is_transient_error(err))
+            self.assertTrue(self.extractor._is_transient_error(err))
+
+        # 502 / 500 / other timeouts -> transient
+        for err in ["502 Bad Gateway", "500 Internal Server Error", "Connection timed out"]:
+            info = is_transient_error(err)
+            self.assertTrue(bool(info), f"Expected {err} to be transient")
+            self.assertTrue(info.is_transient)
+
+        # 503 -> transient with is_503=True
+        info_503 = is_transient_error("503 Service Unavailable")
+        self.assertTrue(info_503.is_transient)
+        self.assertTrue(info_503.is_503)
+
+        # 429 -> transient with is_rate_limit=True
+        info_429 = is_transient_error("429 RESOURCE_EXHAUSTED: Rate limit exceeded")
+        self.assertTrue(info_429.is_transient)
+        self.assertTrue(info_429.is_rate_limit)
+
+        # Non-transient errors (400, 404, etc.)
+        for err in ["400 Bad Request", "404 Not Found", "401 Unauthorized"]:
+            info = is_transient_error(err)
+            self.assertFalse(bool(info), f"Expected {err} to evaluate as False")
+            self.assertFalse(info.is_transient)
 
     def test_extract_batch_fails_fast_on_daily_quota(self):
         self.mock_client.models.generate_content.side_effect = Exception(

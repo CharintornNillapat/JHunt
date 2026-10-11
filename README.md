@@ -123,7 +123,7 @@ JHunt/
 │   └── notifier/                     # Alert dispatching
 │       ├── __init__.py
 │       └── telegram_notifier.py      # HTML-escaped Telegram client & Market Brief
-├── tests/                            # Automated test suite (94 tests)
+├── tests/                            # Automated test suite (98 tests)
 │   ├── test_storage.py               # SQLite & Turso unified schema & client tests
 │   ├── test_extractor.py             # Sanitizer & mock Gemini extraction tests
 │   ├── test_analyzer.py              # Role classifier & clustering tests
@@ -244,7 +244,7 @@ python -m unittest discover tests
 
 Expected output:
 ```text
-Ran 94 tests in 5.71s
+Ran 98 tests in 5.75s
 OK
 ```
 

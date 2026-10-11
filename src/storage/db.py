@@ -79,6 +79,8 @@ class DatabaseManager:
             if skills_cols:
                 if "skill_name" not in skills_cols:
                     conn.execute("ALTER TABLE skills_extracted ADD COLUMN skill_name TEXT")
+                if "category" not in skills_cols:
+                    conn.execute("ALTER TABLE skills_extracted ADD COLUMN category TEXT")
 
             proj_cols = {row["name"] for row in conn.execute("PRAGMA table_xinfo(generated_projects)")}
             if proj_cols:

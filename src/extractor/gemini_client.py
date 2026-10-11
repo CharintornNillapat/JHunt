@@ -61,11 +61,50 @@ def is_daily_quota_exhausted(err_str: str) -> bool:
     return False
 
 
-def is_transient_error(err_str: str) -> Tuple[bool, bool, bool]:
+class TransientErrorInfo(tuple):
+    """
+    Tuple of (is_transient, is_503, is_rate_limit) that evaluates to bool(is_transient)
+    in a boolean context and provides structured attribute access.
+    """
+    is_transient: bool
+    is_503: bool
+    is_rate_limit: bool
+    is_504_or_deadline: bool
+
+    def __new__(cls, is_transient: bool, is_503: bool, is_rate_limit: bool, is_504_or_deadline: bool = False):
+        instance = super().__new__(cls, (is_transient, is_503, is_rate_limit))
+        instance.is_transient = is_transient
+        instance.is_503 = is_503
+        instance.is_rate_limit = is_rate_limit
+        instance.is_504_or_deadline = is_504_or_deadline
+        return instance
+
+    def __bool__(self) -> bool:
+        return bool(self.is_transient)
+
+
+def is_deadline_or_timeout_error(err: Any) -> bool:
+    """
+    Checks if an error indicates a 504 Gateway Timeout or DEADLINE_EXCEEDED.
+    """
+    err_str = str(err)
+    err_lower = err_str.lower()
+    return (
+        "504" in err_str
+        or "gateway timeout" in err_lower
+        or "gateway_timeout" in err_lower
+        or "deadline_exceeded" in err_lower
+        or "deadline exceeded" in err_lower
+    )
+
+
+def is_transient_error(err: Any) -> TransientErrorInfo:
     """
     Determines whether an error is transient and checks error categories.
-    Returns (is_transient, is_503, is_rate_limit).
+    Treats HTTP 504, 502, 500, DEADLINE_EXCEEDED, 429, and 503 as transient.
+    Returns TransientErrorInfo(is_transient, is_503, is_rate_limit, is_504_or_deadline).
     """
+    err_str = str(err)
     err_lower = err_str.lower()
     is_503 = "503" in err_str or "service unavailable" in err_lower or "unavailable" in err_lower
     is_rate_limit = (
@@ -74,8 +113,25 @@ def is_transient_error(err_str: str) -> Tuple[bool, bool, bool]:
         or "rate limit" in err_lower
         or "quota" in err_lower
     )
-    is_transient = is_503 or is_rate_limit or "timeout" in err_lower or "timed out" in err_lower
-    return is_transient, is_503, is_rate_limit
+    is_504_or_deadline = is_deadline_or_timeout_error(err_str)
+    is_server_error = (
+        "500" in err_str
+        or "502" in err_str
+        or "bad gateway" in err_lower
+        or "bad_gateway" in err_lower
+        or "internal server error" in err_lower
+        or "internal error" in err_lower
+    )
+    is_timeout = (
+        is_504_or_deadline
+        or "timeout" in err_lower
+        or "timed out" in err_lower
+    )
+    is_transient = is_503 or is_rate_limit or is_504_or_deadline or is_server_error or is_timeout
+    return TransientErrorInfo(is_transient, is_503, is_rate_limit, is_504_or_deadline)
+
+
+_is_transient_error = is_transient_error
 
 
 def calculate_backoff_sleep(
@@ -102,6 +158,8 @@ class BaseGeminiService:
     Base service handling common Gemini client initialization, rate limiting,
     and throttling delays across extraction, ideation, and filtering.
     """
+
+    _is_transient_error = staticmethod(is_transient_error)
 
     def __init__(
         self,
@@ -148,7 +206,7 @@ class BaseGeminiService:
 
     def _generate(self, contents: str, config: types.GenerateContentConfig, schema: type[R]) -> Optional[R]:
         """
-        One structured call: retries, 503 model fallback, and a breaker that spans calls.
+        One structured call: retries, 503 / 504 model fallback, and a breaker that spans calls.
         `schema` is a Pydantic model or `list[Model]`; the response is validated against it.
         """
         adapter = TypeAdapter(schema)
@@ -183,13 +241,18 @@ class BaseGeminiService:
                 err = str(e)
                 if is_daily_quota_exhausted(err):
                     raise DailyQuotaExhaustedError(err) from e
-                transient, is_503, _ = is_transient_error(err)
-                if not transient:
+                transient_info = is_transient_error(err)
+                if not transient_info.is_transient:
                     logger.error(f"[{tag}] Non-transient error: {err[:200]}")
                     break
+                is_503 = transient_info.is_503
+                is_504_or_deadline = transient_info.is_504_or_deadline
                 if is_503:
                     n503 += 1
                     if n503 >= 2 and model != FALLBACK_MODEL:
+                        model = FALLBACK_MODEL
+                elif is_504_or_deadline:
+                    if model != FALLBACK_MODEL:
                         model = FALLBACK_MODEL
                 if attempt < MAX_RETRIES:
                     sleep_s, backoff = calculate_backoff_sleep(is_503, n503, backoff)

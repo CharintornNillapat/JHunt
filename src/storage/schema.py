@@ -57,8 +57,10 @@ SCHEMA_STATEMENTS = (
     """,
     """
     CREATE TABLE IF NOT EXISTS skills_extracted (
-        job_id TEXT PRIMARY KEY,
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        job_id TEXT UNIQUE,
         skill_name TEXT,
+        category TEXT,
         experience_level TEXT,
         must_have_skills TEXT,
         nice_to_have_skills TEXT,
