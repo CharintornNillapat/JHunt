@@ -36,8 +36,19 @@ export const turso: Client | null = url
 
 export const isTursoConfigured = Boolean(turso);
 
+if (!turso) {
+  console.warn(
+    "[Turso] TURSO_DATABASE_URL environment variable is not defined or empty. LibSQL client is disabled."
+  );
+} else {
+  console.log(
+    `[Turso] LibSQL client configured for endpoint: ${url?.replace(/\/\/.*@/, "//***@")}`
+  );
+}
+
 export async function getAllProjects(): Promise<GeneratedProject[]> {
   if (!turso) {
+    console.warn("[Turso] getAllProjects: Client not configured (missing TURSO_DATABASE_URL).");
     return [];
   }
   try {
@@ -55,13 +66,17 @@ export async function getAllProjects(): Promise<GeneratedProject[]> {
       created_at: String(row.created_at ?? ""),
     }));
   } catch (err) {
-    console.warn("[Turso] Could not fetch projects:", err);
+    console.error("[Turso] Could not fetch projects:", err);
     return [];
   }
 }
 
 export const getProjectById = cache(async (id: string | number): Promise<GeneratedProject | null> => {
-  if (!turso || !/^\d+$/.test(String(id))) {
+  if (!turso) {
+    console.warn(`[Turso] getProjectById(${id}): Client not configured (missing TURSO_DATABASE_URL).`);
+    return null;
+  }
+  if (!/^\d+$/.test(String(id))) {
     return null;
   }
   try {
@@ -84,7 +99,7 @@ export const getProjectById = cache(async (id: string | number): Promise<Generat
       created_at: String(row.created_at ?? ""),
     };
   } catch (err) {
-    console.warn(`[Turso] Could not fetch project ${id}:`, err);
+    console.error(`[Turso] Could not fetch project ${id}:`, err);
     return null;
   }
 });
@@ -107,6 +122,7 @@ export interface MarketAnalytics {
 
 export async function getMarketAnalytics(): Promise<MarketAnalytics | null> {
   if (!turso) {
+    console.warn("[Turso] getMarketAnalytics: Client is not configured. Missing TURSO_DATABASE_URL.");
     return null;
   }
 
@@ -115,9 +131,19 @@ export async function getMarketAnalytics(): Promise<MarketAnalytics | null> {
       turso.execute("SELECT COUNT(*) AS total FROM jobs"),
       turso.execute("SELECT COUNT(DISTINCT title) AS total FROM generated_projects"),
       turso.execute(
-        "SELECT must_have_skills, nice_to_have_skills, frameworks, databases, cloud_infra, tools FROM skills_extracted WHERE experience_level != 'Non-Tech'"
+        "SELECT * FROM skills_extracted WHERE (experience_level IS NULL OR experience_level != 'Non-Tech')"
       ),
     ]);
+
+    if (jobsRes.status === "rejected") {
+      console.error("[Turso] getMarketAnalytics: Failed to query total jobs:", jobsRes.reason);
+    }
+    if (blueprintsRes.status === "rejected") {
+      console.error("[Turso] getMarketAnalytics: Failed to query total blueprints:", blueprintsRes.reason);
+    }
+    if (skillsRes.status === "rejected") {
+      console.warn("[Turso] getMarketAnalytics: Filtered skills query rejected:", skillsRes.reason);
+    }
 
     const totalJobsCount =
       jobsRes.status === "fulfilled" && jobsRes.value.rows[0]?.total
@@ -129,10 +155,25 @@ export async function getMarketAnalytics(): Promise<MarketAnalytics | null> {
         ? Number(blueprintsRes.value.rows[0].total)
         : 0;
 
-    const skillsRows =
+    let skillsRows =
       skillsRes.status === "fulfilled" ? skillsRes.value.rows : [];
 
+    // Resilient fallback: If the filtered query failed, attempt an unfiltered SELECT *
+    if (skillsRes.status === "rejected") {
+      try {
+        console.warn("[Turso] getMarketAnalytics: Attempting fallback unfiltered SELECT * FROM skills_extracted...");
+        const fallbackSkillsRes = await turso.execute("SELECT * FROM skills_extracted");
+        skillsRows = fallbackSkillsRes.rows;
+        console.log(`[Turso] getMarketAnalytics: Fallback query succeeded with ${skillsRows.length} rows.`);
+      } catch (fallbackErr) {
+        console.error("[Turso] getMarketAnalytics: Fallback query also failed:", fallbackErr);
+      }
+    }
+
     if (skillsRows.length === 0) {
+      console.warn(
+        `[Turso] getMarketAnalytics: No skills found (jobsCount=${totalJobsCount}, blueprintsCount=${totalBlueprintsCount}). Returning null to trigger empty state.`
+      );
       return null;
     }
 
@@ -161,6 +202,8 @@ export async function getMarketAnalytics(): Promise<MarketAnalytics | null> {
     for (const row of skillsRows) {
       const allTokens: string[] = [];
       const fields = [
+        row.skill_name,
+        row.skill,
         row.must_have_skills,
         row.nice_to_have_skills,
         row.frameworks,
@@ -212,6 +255,10 @@ export async function getMarketAnalytics(): Promise<MarketAnalytics | null> {
       return items.sort((a, b) => b.count - a.count).slice(0, 8);
     };
 
+    console.log(
+      `[Turso] getMarketAnalytics: Aggregated metrics across ${skillsRows.length} skill records (${totalSkillMentions} total mentions across ${totalJobsCount} jobs).`
+    );
+
     return {
       totalJobs: totalJobsCount || skillsRows.length,
       totalSkills: totalSkillMentions,
@@ -226,3 +273,6 @@ export async function getMarketAnalytics(): Promise<MarketAnalytics | null> {
     return null;
   }
 }
+
+export const getAnalyticsData = getMarketAnalytics;
+

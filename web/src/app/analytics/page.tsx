@@ -1,17 +1,20 @@
-import dynamic from "next/dynamic";
+import nextDynamic from "next/dynamic";
 import { getMarketAnalytics } from "@/lib/turso";
 import AnalyticsSkeleton from "@/components/AnalyticsSkeleton";
 import SpotlightCard from "@/components/SpotlightCard";
 import { Activity, Cpu, Layers, Sparkles } from "lucide-react";
 
-const AnalyticsCharts = dynamic(
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+export const fetchCache = "force-no-store";
+
+const AnalyticsCharts = nextDynamic(
   () => import("@/components/AnalyticsCharts"),
   {
     loading: () => <AnalyticsSkeleton />,
   }
 );
 
-export const revalidate = 60;
 
 export default async function AnalyticsPage() {
   const analytics = await getMarketAnalytics();

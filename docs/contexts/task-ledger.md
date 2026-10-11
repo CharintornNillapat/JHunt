@@ -91,6 +91,7 @@ Elevate `JHunt` from a keyword scraper and Telegram alerter into a production-gr
 - [x] **Storage SSoT Migration**: Established Turso (LibSQL over HTTPS) as Single Source of Truth for production data ingestion, with SQLite fallback, eliminating CI runner SQLite cache.
 - [x] **LLM Gateway Timeout Resilience**: Classified HTTP 504, 502, 500, and DEADLINE_EXCEEDED as transient errors in `gemini_client.py` and triggered immediate fallback to `gemini-2.5-flash` with exponential backoff.
 - [x] **Self-Healing Turso Schema Migration**: Implemented dynamic column migration (`skill` -> `skill_name`, `category`) and non-blocking isolated index execution in `turso_client.py`.
+- [x] **Dynamic SSR & Analytics Resilience**: Enabled dynamic SSR on `/analytics` (`dynamic = 'force-dynamic'`, `revalidate = 0`, `fetchCache = 'force-no-store'`), eliminating build-time SSG empty-state caching; added structured diagnostics, null-safe experience filter, and query fallback in `web/src/lib/turso.ts`.
 - [x] Comprehensive test suite expanded to 102 tests with 100% pass rate.
 
 ---
