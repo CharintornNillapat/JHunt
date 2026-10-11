@@ -132,6 +132,7 @@ JHunt/
 ├── .gitignore                        # Git exclusion rules
 ├── CLAUDE.md                         # Single developer constitution & project rules
 ├── environment.yml                   # Conda environment definition
+├── requirements.txt                  # Python dependencies (uv / pip)
 ├── main.py                           # Unified CLI pipeline runner
 ├── notifier.py                       # Backward-compatibility shim
 └── state_manager.py                  # Deduplication & state persistence
@@ -190,14 +191,18 @@ python main.py analyze --role "AI / ML / Computer Vision Engineer"
 ### Installation
 
 ```bash
-# Option A: Conda
-conda env create -f environment.yml
-conda activate jhunt
+# Option A: uv (Fastest, recommended)
+uv venv
+uv pip install -r requirements.txt
 
 # Option B: Standard Python venv
 python -m venv .venv
-.venv\Scripts\activate
-pip install requests python-dotenv pydantic jinja2 google-genai
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+
+# Option C: Conda
+conda env create -f environment.yml
+conda activate jhunt
 ```
 
 ### Configuration (`.env`)

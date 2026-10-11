@@ -37,9 +37,11 @@ This file provides guidance to Claude Code (claude.ai/code) and AI assistants wh
 ## Commands
 
 ```bash
-# Environment (environment.yml is the source of truth; there is no requirements.txt)
-conda env create -f environment.yml
-conda activate jhunt
+# Environment (`requirements.txt` via `uv` or `pip`, or `environment.yml` via Conda)
+uv venv
+uv pip install -r requirements.txt
+# or standard pip
+pip install -r requirements.txt
 
 # Full end-to-end pipeline (Scrape -> Extract -> Save -> Notify -> Analyze -> Ideate -> Export)
 python main.py run --all
@@ -150,6 +152,6 @@ leaves no gap.
 
 ## CI & Automated Deployment
 
-`.github/workflows/scraper_cron.yml` — runs daily at 02:00 UTC (09:00 Bangkok), plus `workflow_dispatch`.
-Miniconda from `environment.yml`. State persistence uses split `actions/cache/restore@v4` + `actions/cache/save@v4`
+`.github/workflows/scraper_cron.yml` — runs daily at 01:00 UTC (08:00 Bangkok), plus `workflow_dispatch`.
+`uv` (`astral-sh/setup-uv@v5`) with Python 3.11 and `requirements.txt`. State persistence uses split `actions/cache/restore@v4` + `actions/cache/save@v4`
 with rotating key `seen-jobs-state-v2-${{ github.run_id }}`.
