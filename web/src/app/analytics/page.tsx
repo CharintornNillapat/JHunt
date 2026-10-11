@@ -1,7 +1,15 @@
+import dynamic from "next/dynamic";
 import { getMarketAnalytics } from "@/lib/turso";
-import AnalyticsCharts from "@/components/AnalyticsCharts";
+import AnalyticsSkeleton from "@/components/AnalyticsSkeleton";
 import SpotlightCard from "@/components/SpotlightCard";
 import { Activity, Cpu, Layers, Sparkles } from "lucide-react";
+
+const AnalyticsCharts = dynamic(
+  () => import("@/components/AnalyticsCharts"),
+  {
+    loading: () => <AnalyticsSkeleton />,
+  }
+);
 
 export const revalidate = 60;
 
