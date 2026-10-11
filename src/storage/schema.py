@@ -39,7 +39,7 @@ EXPECTED_INDEXES = (
     "idx_projects_role",
 )
 
-SCHEMA_STATEMENTS = (
+TABLE_STATEMENTS = (
     """
     CREATE TABLE IF NOT EXISTS jobs (
         id TEXT PRIMARY KEY,
@@ -73,9 +73,21 @@ SCHEMA_STATEMENTS = (
     )
     """,
     GENERATED_PROJECTS_DDL,
+)
+
+BASE_INDEX_STATEMENTS = (
     "CREATE INDEX IF NOT EXISTS idx_jobs_created_at ON jobs (created_at)",
     "CREATE INDEX IF NOT EXISTS idx_projects_title ON generated_projects (title)",
+)
+
+ALL_INDEX_STATEMENTS = (
+    *BASE_INDEX_STATEMENTS,
     *INDEX_STATEMENTS,
+)
+
+SCHEMA_STATEMENTS = (
+    *TABLE_STATEMENTS,
+    *ALL_INDEX_STATEMENTS,
 )
 
 # Local SQLite files created before the schemas were unified stored

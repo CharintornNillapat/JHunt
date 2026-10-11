@@ -15,7 +15,12 @@ from unittest.mock import MagicMock, patch
 from src.extractor.schemas import ExtractedJob, FailureMode, ProjectIdeaSpec
 from src.generator.markdown_exporter import MarkdownExporter
 from src.storage import DatabaseManager, TursoClient, get_storage
-from src.storage.schema import EXPECTED_INDEXES, SCHEMA_STATEMENTS
+from src.storage.schema import (
+    ALL_INDEX_STATEMENTS,
+    EXPECTED_INDEXES,
+    SCHEMA_STATEMENTS,
+    TABLE_STATEMENTS,
+)
 
 
 class TestDataContracts(unittest.TestCase):
@@ -333,8 +338,9 @@ class TestTursoClient(unittest.TestCase):
         turso = TursoClient(client=mock_client)
         self.assertTrue(turso.is_available)
 
-        # The shared schema is applied in one round trip, identical to local SQLite
-        mock_client.batch.assert_called_once_with(list(SCHEMA_STATEMENTS))
+        # Tables and indexes are both batched
+        mock_client.batch.assert_any_call(list(TABLE_STATEMENTS))
+        mock_client.batch.assert_any_call(list(ALL_INDEX_STATEMENTS))
 
     def test_turso_indexes_exist_after_init_schema(self):
         mock_client = MagicMock()
@@ -342,8 +348,12 @@ class TestTursoClient(unittest.TestCase):
         mock_client.batch.reset_mock()
 
         turso.init_schema()
-        mock_client.batch.assert_called_once_with(list(SCHEMA_STATEMENTS))
-        batched_statements = mock_client.batch.call_args[0][0]
+        mock_client.batch.assert_any_call(list(TABLE_STATEMENTS))
+        mock_client.batch.assert_any_call(list(ALL_INDEX_STATEMENTS))
+
+        index_calls = [c[0][0] for c in mock_client.batch.call_args_list if c[0] and c[0][0] == list(ALL_INDEX_STATEMENTS)]
+        self.assertTrue(len(index_calls) > 0)
+        batched_statements = index_calls[0]
         for idx in EXPECTED_INDEXES:
             matching = [s for s in batched_statements if isinstance(s, str) and idx in s]
             self.assertTrue(len(matching) > 0, f"Expected {idx} in Turso init_schema batch")
@@ -357,6 +367,11 @@ class TestTursoClient(unittest.TestCase):
             class SimulatedLibsqlClient:
                 def __init__(self, connection):
                     self.conn = connection
+
+                def execute(self, stmt, params=None):
+                    if params is not None:
+                        return self.conn.execute(stmt, params)
+                    return self.conn.execute(stmt)
 
                 def batch(self, stmts):
                     for stmt in stmts:
@@ -378,6 +393,154 @@ class TestTursoClient(unittest.TestCase):
             conn.close()
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_turso_legacy_column_migration_renames_skill_to_skill_name(self):
+        temp_dir = tempfile.mkdtemp(prefix="jhunt_turso_mig_test_")
+        try:
+            db_path = Path(temp_dir) / "legacy_turso.db"
+            conn = sqlite3.connect(db_path)
+            conn.execute("""
+                CREATE TABLE skills_extracted (
+                    job_id TEXT PRIMARY KEY,
+                    skill TEXT,
+                    experience_level TEXT,
+                    must_have_skills TEXT,
+                    nice_to_have_skills TEXT,
+                    frameworks TEXT,
+                    databases TEXT,
+                    cloud_infra TEXT,
+                    tools TEXT,
+                    extracted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """)
+            conn.commit()
+
+            class SimulatedLibsqlClient:
+                def __init__(self, connection):
+                    self.conn = connection
+
+                def execute(self, stmt, params=None):
+                    if params is not None:
+                        cur = self.conn.execute(stmt, params)
+                    else:
+                        cur = self.conn.execute(stmt)
+                    self.conn.commit()
+                    return cur
+
+                def batch(self, stmts):
+                    for stmt in stmts:
+                        if isinstance(stmt, str):
+                            self.conn.execute(stmt)
+                        else:
+                            self.conn.execute(stmt[0], stmt[1])
+                    self.conn.commit()
+
+                def close(self):
+                    self.conn.close()
+
+            sim_client = SimulatedLibsqlClient(conn)
+            turso = TursoClient(client=sim_client)
+            turso.init_schema()
+
+            cols = {row[1] for row in conn.execute("PRAGMA table_info(skills_extracted)")}
+            self.assertIn("skill_name", cols, "Column 'skill' should be renamed to 'skill_name'")
+            self.assertNotIn("skill", cols, "Legacy column 'skill' should no longer exist")
+            self.assertIn("category", cols, "Column 'category' should be added")
+
+            # Check that idx_skills_name exists on the migrated table
+            indexes = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='index'")}
+            self.assertIn("idx_skills_name", indexes)
+            conn.close()
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_turso_legacy_column_migration_with_mock(self):
+        mock_client = MagicMock()
+
+        class MockRow:
+            def __init__(self, name):
+                self._name = name
+
+            def __getitem__(self, item):
+                if item == "name":
+                    return self._name
+                raise KeyError(item)
+
+        class MockPRAGMAResult:
+            rows = [MockRow("job_id"), MockRow("skill"), MockRow("experience_level")]
+
+        def execute_side_effect(sql, params=None):
+            if "PRAGMA table_info" in sql:
+                return MockPRAGMAResult()
+            return MagicMock()
+
+        mock_client.execute.side_effect = execute_side_effect
+
+        turso = TursoClient(client=mock_client)
+        mock_client.execute.assert_any_call("ALTER TABLE skills_extracted RENAME COLUMN skill TO skill_name;")
+        mock_client.execute.assert_any_call("ALTER TABLE skills_extracted ADD COLUMN category TEXT;")
+
+    def test_turso_missing_skill_name_added_when_no_legacy_skill(self):
+        temp_dir = tempfile.mkdtemp(prefix="jhunt_turso_add_col_test_")
+        try:
+            db_path = Path(temp_dir) / "no_skill_col.db"
+            conn = sqlite3.connect(db_path)
+            conn.execute("""
+                CREATE TABLE skills_extracted (
+                    job_id TEXT PRIMARY KEY,
+                    experience_level TEXT
+                );
+            """)
+            conn.commit()
+
+            class SimulatedLibsqlClient:
+                def __init__(self, connection):
+                    self.conn = connection
+
+                def execute(self, stmt, params=None):
+                    if params is not None:
+                        cur = self.conn.execute(stmt, params)
+                    else:
+                        cur = self.conn.execute(stmt)
+                    self.conn.commit()
+                    return cur
+
+                def batch(self, stmts):
+                    for stmt in stmts:
+                        if isinstance(stmt, str):
+                            self.conn.execute(stmt)
+                        else:
+                            self.conn.execute(stmt[0], stmt[1])
+                    self.conn.commit()
+
+                def close(self):
+                    self.conn.close()
+
+            sim_client = SimulatedLibsqlClient(conn)
+            turso = TursoClient(client=sim_client)
+            turso.init_schema()
+
+            cols = {row[1] for row in conn.execute("PRAGMA table_info(skills_extracted)")}
+            self.assertIn("skill_name", cols)
+            self.assertIn("category", cols)
+            conn.close()
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_turso_non_blocking_index_creation_errors(self):
+        mock_client = MagicMock()
+
+        def batch_side_effect(stmts):
+            if any("CREATE INDEX" in s for s in stmts if isinstance(s, str)):
+                raise Exception("batch index error: simulated lock")
+            return None
+
+        mock_client.batch.side_effect = batch_side_effect
+        mock_client.execute.side_effect = Exception("single index error: simulated error")
+
+        # TursoClient initialization should NOT raise and should remain available!
+        turso = TursoClient(client=mock_client)
+        self.assertTrue(turso.is_available, "Turso client should remain available even if index creation fails")
 
     def test_malformed_url_falls_back_instead_of_raising(self):
         with patch("libsql_client.create_client_sync", side_effect=ValueError("unsupported URL scheme")):

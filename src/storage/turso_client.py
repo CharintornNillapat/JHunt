@@ -15,7 +15,11 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import libsql_client
 
 from src.extractor.schemas import ExtractedJob
-from src.storage.schema import SCHEMA_STATEMENTS
+from src.storage.schema import (
+    ALL_INDEX_STATEMENTS,
+    SCHEMA_STATEMENTS,
+    TABLE_STATEMENTS,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -94,14 +98,152 @@ class TursoClient:
             finally:
                 self.client = None
 
-    def init_schema(self) -> None:
+    def _execute_ddl(self, sql: str) -> None:
+        """Executes a single DDL statement safely using execute() or batch()."""
+        if not self.client:
+            return
+        if hasattr(self.client, "execute"):
+            self.client.execute(sql)
+        elif hasattr(self.client, "batch"):
+            self.client.batch([sql])
+
+    def _get_skills_extracted_columns(self) -> set[str]:
+        """Inspects existing column names of skills_extracted table in Turso."""
+        if not self.client:
+            return set()
+        try:
+            if hasattr(self.client, "execute"):
+                rs = self.client.execute("PRAGMA table_info(skills_extracted);")
+            elif hasattr(self.client, "batch"):
+                res = self.client.batch(["PRAGMA table_info(skills_extracted);"])
+                rs = res[0] if res else None
+            else:
+                return set()
+
+            rows = getattr(rs, "rows", None)
+            if rows is None:
+                if hasattr(rs, "fetchall"):
+                    try:
+                        rows = rs.fetchall()
+                    except Exception:
+                        rows = None
+                elif hasattr(rs, "__iter__") and not isinstance(rs, (str, bytes)):
+                    try:
+                        rows = list(rs)
+                    except Exception:
+                        rows = None
+
+            if not rows:
+                return set()
+
+            cols: set[str] = set()
+            for row in rows:
+                if hasattr(row, "__getitem__"):
+                    try:
+                        cols.add(str(row["name"]).strip().lower())
+                    except (TypeError, KeyError, IndexError):
+                        if len(row) > 1:
+                            cols.add(str(row[1]).strip().lower())
+                elif hasattr(row, "name"):
+                    cols.add(str(row.name).strip().lower())
+            return cols
+        except Exception as e:
+            logger.debug(f"[TursoClient] Failed to inspect skills_extracted columns ({e}).")
+            return set()
+
+    def _migrate_skills_extracted_schema(self) -> None:
         """
-        Initializes unified schema tables and performance B-Tree indexes
-        in Turso cloud database in a single batch round trip.
+        Self-healing schema migration for skills_extracted table in Turso.
+        Renames legacy 'skill' -> 'skill_name', adds 'skill_name' if missing,
+        and ensures 'category' column exists.
         """
         if not self.client:
             return
-        self.client.batch(list(SCHEMA_STATEMENTS))
+
+        cols = self._get_skills_extracted_columns()
+        if not cols:
+            return
+
+        # 1. Ensure skill_name column exists
+        if "skill_name" not in cols:
+            if "skill" in cols:
+                try:
+                    logger.info("[TursoClient] Migrating legacy column 'skill' to 'skill_name'...")
+                    self._execute_ddl("ALTER TABLE skills_extracted RENAME COLUMN skill TO skill_name;")
+                    cols.remove("skill")
+                    cols.add("skill_name")
+                except Exception as e:
+                    logger.warning(f"[TursoClient] Failed to rename 'skill' to 'skill_name': {e}")
+            else:
+                try:
+                    logger.info("[TursoClient] Adding missing column 'skill_name' to skills_extracted...")
+                    self._execute_ddl("ALTER TABLE skills_extracted ADD COLUMN skill_name TEXT;")
+                    cols.add("skill_name")
+                except Exception as e:
+                    logger.warning(f"[TursoClient] Failed to add column 'skill_name': {e}")
+
+        # 2. Ensure category column exists
+        if "category" not in cols:
+            try:
+                logger.info("[TursoClient] Adding missing column 'category' to skills_extracted...")
+                self._execute_ddl("ALTER TABLE skills_extracted ADD COLUMN category TEXT;")
+                cols.add("category")
+            except Exception as e:
+                logger.warning(f"[TursoClient] Failed to add column 'category': {e}")
+
+    def _create_indexes(self) -> None:
+        """
+        Creates B-Tree indexes with isolated error handling.
+        Tries batch execution first for low latency; falls back to isolated single-statement
+        execution if batch fails, ensuring non-blocking resilience.
+        """
+        if not self.client:
+            return
+
+        index_stmts = list(ALL_INDEX_STATEMENTS)
+        try:
+            if hasattr(self.client, "batch"):
+                self.client.batch(index_stmts)
+                return
+        except Exception as batch_err:
+            logger.warning(
+                f"[TursoClient] Batch index creation failed ({batch_err}); "
+                "falling back to isolated index execution."
+            )
+
+        for stmt in index_stmts:
+            try:
+                self._execute_ddl(stmt)
+            except Exception as e:
+                logger.warning(f"[TursoClient] Non-fatal error creating index ({e}): {stmt}")
+
+    def init_schema(self) -> None:
+        """
+        Initializes unified schema tables, executes self-healing migrations,
+        and applies performance B-Tree indexes with isolated resilience.
+        """
+        if not self.client:
+            return
+
+        # 1. Run table creation statements first
+        table_stmts = list(TABLE_STATEMENTS)
+        if hasattr(self.client, "batch"):
+            self.client.batch(table_stmts)
+        else:
+            for stmt in table_stmts:
+                self._execute_ddl(stmt)
+
+        # 2. Self-healing migration for legacy columns
+        try:
+            self._migrate_skills_extracted_schema()
+        except Exception as e:
+            logger.warning(f"[TursoClient] Schema migration check encountered non-fatal error: {e}")
+
+        # 3. Resilient index creation
+        try:
+            self._create_indexes()
+        except Exception as e:
+            logger.warning(f"[TursoClient] Index creation encountered non-fatal error: {e}")
 
     def init_tables(self) -> None:
         """Backwards-compatible alias for init_schema."""
