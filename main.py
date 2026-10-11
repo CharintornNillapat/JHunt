@@ -290,6 +290,18 @@ def run_full_pipeline(
         results["scraped"] = len(raw_jobs)
         print(f"[Main] Total raw jobs scraped: {len(raw_jobs)}")
 
+        # Step 1.5: Salary Intelligence & Compensation Parser
+        from src.extractor.salary_parser import parse_salary
+        for job in raw_jobs:
+            if job.get("min_salary") is None and job.get("max_salary") is None:
+                min_s, max_s, curr = parse_salary(
+                    raw_salary_text=job.get("salary"),
+                    description=job.get("description") or job.get("teaser"),
+                )
+                job["min_salary"] = min_s
+                job["max_salary"] = max_s
+                job["currency"] = curr
+
         # Step 2: Store in active storage (Single Source of Truth)
         stored_count = active_storage.save_jobs(raw_jobs)
         results["new_stored"] = stored_count

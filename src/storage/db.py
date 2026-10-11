@@ -74,6 +74,12 @@ class DatabaseManager:
                     conn.execute("ALTER TABLE jobs ADD COLUMN posted_at TIMESTAMP")
                 if "source" not in jobs_cols:
                     conn.execute("ALTER TABLE jobs ADD COLUMN source TEXT")
+                if "min_salary" not in jobs_cols:
+                    conn.execute("ALTER TABLE jobs ADD COLUMN min_salary INTEGER")
+                if "max_salary" not in jobs_cols:
+                    conn.execute("ALTER TABLE jobs ADD COLUMN max_salary INTEGER")
+                if "currency" not in jobs_cols:
+                    conn.execute("ALTER TABLE jobs ADD COLUMN currency TEXT DEFAULT 'THB'")
 
             skills_cols = {row["name"] for row in conn.execute("PRAGMA table_info(skills_extracted)")}
             if skills_cols:
@@ -104,6 +110,13 @@ class DatabaseManager:
         if not job_id:
             return False
 
+        min_salary = job.get("min_salary")
+        max_salary = job.get("max_salary")
+        currency = job.get("currency") or "THB"
+        if min_salary is None and max_salary is None and (job.get("salary") or job.get("description")):
+            from src.extractor.salary_parser import parse_salary
+            min_salary, max_salary, currency = parse_salary(job.get("salary"), job.get("description"))
+
         raw_payload = {
             "teaser": job.get("teaser", "") or "",
             "bullet_points": job.get("bullet_points", []) or [],
@@ -115,8 +128,8 @@ class DatabaseManager:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                INSERT INTO jobs (id, title, company, url, location, salary, work_type, raw_content, posted_at, source)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO jobs (id, title, company, url, location, salary, work_type, raw_content, posted_at, source, min_salary, max_salary, currency)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO NOTHING;
                 """,
                 (
@@ -130,6 +143,9 @@ class DatabaseManager:
                     json.dumps(raw_payload, ensure_ascii=False),
                     str(job.get("posted_at") or job.get("listing_date") or "").strip() or None,
                     str(job.get("source") or "").strip() or None,
+                    min_salary,
+                    max_salary,
+                    str(currency or "THB").strip(),
                 ),
             )
             return cursor.rowcount > 0
@@ -149,6 +165,14 @@ class DatabaseManager:
                 job_id = str(job.get("id") or "").strip()
                 if not job_id:
                     continue
+
+                min_salary = job.get("min_salary")
+                max_salary = job.get("max_salary")
+                currency = job.get("currency") or "THB"
+                if min_salary is None and max_salary is None and (job.get("salary") or job.get("description")):
+                    from src.extractor.salary_parser import parse_salary
+                    min_salary, max_salary, currency = parse_salary(job.get("salary"), job.get("description"))
+
                 raw_payload = {
                     "teaser": job.get("teaser", "") or "",
                     "bullet_points": job.get("bullet_points", []) or [],
@@ -157,8 +181,8 @@ class DatabaseManager:
                 }
                 cursor.execute(
                     """
-                    INSERT INTO jobs (id, title, company, url, location, salary, work_type, raw_content, posted_at, source)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO jobs (id, title, company, url, location, salary, work_type, raw_content, posted_at, source, min_salary, max_salary, currency)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(id) DO NOTHING;
                     """,
                     (
@@ -172,6 +196,9 @@ class DatabaseManager:
                         json.dumps(raw_payload, ensure_ascii=False),
                         str(job.get("posted_at") or job.get("listing_date") or "").strip() or None,
                         str(job.get("source") or "").strip() or None,
+                        min_salary,
+                        max_salary,
+                        str(currency or "THB").strip(),
                     ),
                 )
                 if cursor.rowcount > 0:
@@ -218,14 +245,15 @@ class DatabaseManager:
 
     def save_extracted_skills(self, job_id: str, extracted: ExtractedJob) -> None:
         """Persists or updates structured LLM extracted skills for a job."""
+        skill_name = str(extracted.must_have_skills[0]).strip() if extracted.must_have_skills else None
         with self._connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
                 INSERT INTO skills_extracted (
                     job_id, experience_level, must_have_skills, nice_to_have_skills,
-                    frameworks, databases, cloud_infra, tools
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    frameworks, databases, cloud_infra, tools, skill_name
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(job_id) DO UPDATE SET
                     experience_level = excluded.experience_level,
                     must_have_skills = excluded.must_have_skills,
@@ -234,6 +262,7 @@ class DatabaseManager:
                     databases = excluded.databases,
                     cloud_infra = excluded.cloud_infra,
                     tools = excluded.tools,
+                    skill_name = COALESCE(excluded.skill_name, skills_extracted.skill_name),
                     extracted_at = CURRENT_TIMESTAMP;
                 """,
                 (
@@ -245,6 +274,7 @@ class DatabaseManager:
                     json.dumps(extracted.databases, ensure_ascii=False),
                     json.dumps(extracted.cloud_infra, ensure_ascii=False),
                     json.dumps(extracted.tools, ensure_ascii=False),
+                    skill_name,
                 ),
             )
 

@@ -51,6 +51,28 @@ export default function AnalyticsSkeleton() {
         </div>
       </div>
 
+      {/* Top Compensated Skills Skeleton */}
+      <div className="border border-white/[0.06] bg-zinc-950/40 rounded-xl animate-pulse min-h-[300px] p-6 flex flex-col justify-between">
+        <div className="flex items-center justify-between pb-3 border-b border-white/[0.06]">
+          <div className="flex items-center gap-2.5">
+            <div className="h-4 w-4 rounded bg-cyan-500/20" />
+            <div className="h-4 w-60 rounded bg-zinc-800/70" />
+          </div>
+          <div className="h-3 w-28 rounded bg-zinc-900" />
+        </div>
+        <div className="h-48 w-full flex flex-col justify-around py-2">
+          {[90, 75, 65, 50, 40].map((width, idx) => (
+            <div key={idx} className="flex items-center gap-4">
+              <div className="h-3 w-20 rounded bg-zinc-800/60" />
+              <div
+                className="h-3.5 rounded bg-gradient-to-r from-cyan-500/20 to-blue-500/10"
+                style={{ width: `${width}%` }}
+              />
+            </div>
+          ))}
+        </div>
+      </div>
+
       {/* Database & Framework Grid Skeleton */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Persistence & Data Engines Skeleton */}

@@ -16,6 +16,7 @@ import requests
 
 from src.models import RawJob
 from src.scrapers.base import BaseScraper
+from src.extractor.salary_parser import parse_salary
 
 logger = logging.getLogger("JHunt.Scrapers.Blognone")
 
@@ -187,6 +188,8 @@ class BlognoneScraper(BaseScraper):
         detail_desc = self._fetch_detail_description(url)
         description = detail_desc if detail_desc else fallback_desc
 
+        min_salary, max_salary, currency = parse_salary(salary, description)
+
         return RawJob(
             id=job_id,
             title=title,
@@ -200,6 +203,9 @@ class BlognoneScraper(BaseScraper):
             posted_at=posted_at,
             tags=skills,
             teaser=fallback_desc,
+            min_salary=min_salary,
+            max_salary=max_salary,
+            currency=currency,
         )
 
     def scrape(self, keywords: Optional[List[str]] = None, limit: int = 50) -> List[RawJob]:

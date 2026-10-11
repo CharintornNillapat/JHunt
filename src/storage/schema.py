@@ -52,7 +52,10 @@ TABLE_STATEMENTS = (
         raw_content TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         posted_at TIMESTAMP,
-        source TEXT
+        source TEXT,
+        min_salary INTEGER,
+        max_salary INTEGER,
+        currency TEXT DEFAULT 'THB'
     )
     """,
     """

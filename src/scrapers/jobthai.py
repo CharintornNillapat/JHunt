@@ -15,6 +15,7 @@ import requests
 
 from src.models import RawJob
 from src.scrapers.base import BaseScraper
+from src.extractor.salary_parser import parse_salary
 
 logger = logging.getLogger("JHunt.Scrapers.JobThai")
 
@@ -194,6 +195,7 @@ class JobThaiScraper(BaseScraper):
 
         # Retrieve job description, handling banner-only / missing formats gracefully
         description = self._fetch_job_description(numeric_id)
+        min_salary, max_salary, currency = parse_salary(salary, description)
 
         return RawJob(
             id=job_id,
@@ -206,6 +208,9 @@ class JobThaiScraper(BaseScraper):
             source="jobthai",
             posted_at=posted_at,
             tags=tags,
+            min_salary=min_salary,
+            max_salary=max_salary,
+            currency=currency,
         )
 
     def scrape(self, keywords: Optional[List[str]] = None, limit: int = 50) -> List[RawJob]:

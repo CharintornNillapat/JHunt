@@ -114,9 +114,44 @@ class TestDatabaseManager(unittest.TestCase):
         self.assertEqual(len(unprocessed), 1)
         self.assertEqual(unprocessed[0]["id"], "job_001")
 
+        # Verify parsed salary columns were persisted correctly
+        with self.db._connection() as conn:
+            row = conn.execute("SELECT min_salary, max_salary, currency FROM jobs WHERE id = 'job_001'").fetchone()
+            self.assertIsNotNone(row)
+            self.assertEqual(row["min_salary"], 50000)
+            self.assertEqual(row["max_salary"], 70000)
+            self.assertEqual(row["currency"], "THB")
+
         # Duplicate insert -> False
         second_insert = self.db.save_job(job_data)
         self.assertFalse(second_insert)
+
+    def test_database_manager_self_healing_migration_for_salary_columns(self):
+        # Create a database table missing min_salary, max_salary, and currency
+        custom_db_path = Path(self.test_dir) / "legacy_salary_test.db"
+        conn = sqlite3.connect(str(custom_db_path))
+        conn.execute("""
+            CREATE TABLE jobs (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                company TEXT NOT NULL,
+                url TEXT NOT NULL,
+                location TEXT,
+                salary TEXT,
+                work_type TEXT,
+                raw_content TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+        conn.close()
+
+        # DatabaseManager initialization triggers self-healing schema migration
+        mgr = DatabaseManager(db_path=custom_db_path)
+        with mgr._connection() as c:
+            cols = {row["name"] for row in c.execute("PRAGMA table_info(jobs)")}
+            self.assertIn("min_salary", cols)
+            self.assertIn("max_salary", cols)
+            self.assertIn("currency", cols)
 
 
     def test_get_unprocessed_jobs(self):
@@ -598,6 +633,36 @@ class TestTursoClient(unittest.TestCase):
         self.assertEqual(params[0], "job_cloud_01")
         self.assertEqual(params[1], "Cloud Engineer")
         self.assertEqual(params[2], "True Digital")
+        self.assertEqual(params[10], 80000)
+        self.assertEqual(params[11], 80000)
+        self.assertEqual(params[12], "THB")
+
+        sql2, params2 = stmts[1]
+        self.assertEqual(params2[0], "job_cloud_02")
+        self.assertIsNone(params2[10])
+        self.assertIsNone(params2[11])
+        self.assertEqual(params2[12], "THB")
+
+    def test_turso_migrate_jobs_schema_adds_missing_columns(self):
+        mock_client = MagicMock()
+        turso = TursoClient(client=mock_client)
+
+        class MockTableInfoResult:
+            rows = [
+                {"name": "id"},
+                {"name": "title"},
+                {"name": "company"},
+                {"name": "url"},
+                {"name": "salary"},
+            ]
+
+        mock_client.execute.return_value = MockTableInfoResult()
+        turso._migrate_jobs_schema()
+
+        executed_sqls = [call[0][0] for call in mock_client.execute.call_args_list if call[0]]
+        self.assertTrue(any("ADD COLUMN min_salary" in sql for sql in executed_sqls))
+        self.assertTrue(any("ADD COLUMN max_salary" in sql for sql in executed_sqls))
+        self.assertTrue(any("ADD COLUMN currency" in sql for sql in executed_sqls))
 
     def test_sync_jobs_batch_failure_returns_zero(self):
         mock_client = MagicMock()

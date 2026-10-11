@@ -110,6 +110,12 @@ export interface MarketMetricItem {
   percentage?: number;
 }
 
+export interface CompensatedSkillItem {
+  skill: string;
+  avg_salary: number;
+  sample_count: number;
+}
+
 export interface MarketAnalytics {
   totalJobs: number;
   totalSkills: number;
@@ -118,6 +124,7 @@ export interface MarketAnalytics {
   clouds: MarketMetricItem[];
   databases: MarketMetricItem[];
   frameworks: MarketMetricItem[];
+  top_compensated_skills: CompensatedSkillItem[];
 }
 
 export async function getMarketAnalytics(): Promise<MarketAnalytics | null> {
@@ -127,12 +134,28 @@ export async function getMarketAnalytics(): Promise<MarketAnalytics | null> {
   }
 
   try {
-    const [jobsRes, blueprintsRes, skillsRes] = await Promise.allSettled([
+    const [jobsRes, blueprintsRes, skillsRes, compRes] = await Promise.allSettled([
       turso.execute("SELECT COUNT(*) AS total FROM jobs"),
       turso.execute("SELECT COUNT(DISTINCT title) AS total FROM generated_projects"),
       turso.execute(
         "SELECT * FROM skills_extracted WHERE (experience_level IS NULL OR experience_level != 'Non-Tech')"
       ),
+      turso.execute(`
+        SELECT 
+          s.skill_name,
+          COUNT(DISTINCT j.id) as sample_count,
+          ROUND(AVG((j.min_salary + j.max_salary) / 2)) as avg_salary
+        FROM skills_extracted s
+        JOIN jobs j ON s.job_id = j.id
+        WHERE j.min_salary IS NOT NULL 
+          AND j.max_salary IS NOT NULL 
+          AND s.skill_name IS NOT NULL
+          AND (s.experience_level IS NULL OR s.experience_level != 'Non-Tech')
+        GROUP BY s.skill_name
+        HAVING sample_count >= 1
+        ORDER BY avg_salary DESC
+        LIMIT 10;
+      `),
     ]);
 
     if (jobsRes.status === "rejected") {
@@ -143,6 +166,9 @@ export async function getMarketAnalytics(): Promise<MarketAnalytics | null> {
     }
     if (skillsRes.status === "rejected") {
       console.warn("[Turso] getMarketAnalytics: Filtered skills query rejected:", skillsRes.reason);
+    }
+    if (compRes.status === "rejected") {
+      console.warn("[Turso] getMarketAnalytics: Compensation aggregation query rejected:", compRes.reason);
     }
 
     const totalJobsCount =
@@ -259,6 +285,17 @@ export async function getMarketAnalytics(): Promise<MarketAnalytics | null> {
       `[Turso] getMarketAnalytics: Aggregated metrics across ${skillsRows.length} skill records (${totalSkillMentions} total mentions across ${totalJobsCount} jobs).`
     );
 
+    let topCompensatedSkills: CompensatedSkillItem[] = [];
+    if (compRes.status === "fulfilled" && compRes.value.rows.length > 0) {
+      topCompensatedSkills = compRes.value.rows
+        .map((row) => ({
+          skill: String(row.skill_name ?? ""),
+          avg_salary: Number(row.avg_salary ?? 0),
+          sample_count: Number(row.sample_count ?? 0),
+        }))
+        .filter((item) => item.skill && item.avg_salary > 0);
+    }
+
     return {
       totalJobs: totalJobsCount || skillsRows.length,
       totalSkills: totalSkillMentions,
@@ -267,6 +304,7 @@ export async function getMarketAnalytics(): Promise<MarketAnalytics | null> {
       clouds: toSortedItems(cloudCounter),
       databases: toSortedItems(dbCounter),
       frameworks: toSortedItems(fwCounter),
+      top_compensated_skills: topCompensatedSkills,
     };
   } catch (err) {
     console.error("[Turso] Market analytics query failed:", err);

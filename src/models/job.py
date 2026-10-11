@@ -32,6 +32,9 @@ class RawJob(BaseModel):
     bullet_points: Optional[List[str]] = Field(default=None, description="Bullet points or key highlights")
     tags: Optional[List[str]] = Field(default=None, description="Category or skill tags")
     listing_date: Optional[str] = Field(default=None, description="Listing date representation")
+    min_salary: Optional[int] = Field(default=None, description="Normalized minimum monthly salary")
+    max_salary: Optional[int] = Field(default=None, description="Normalized maximum monthly salary")
+    currency: Optional[str] = Field(default="THB", description="Currency code (e.g. THB, USD)")
 
     def __getitem__(self, key: str) -> Any:
         if hasattr(self, key):

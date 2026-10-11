@@ -5,6 +5,8 @@ from .text_cleaner import clean_job_description
 from .gemini_client import DailyQuotaExhaustedError, is_daily_quota_exhausted
 from .llm_extractor import GeminiExtractor, is_tech_job, process_unprocessed_jobs
 
+from .salary_parser import parse_salary
+
 __all__ = [
     "ExtractedJob",
     "ProjectIdeaSpec",
@@ -17,4 +19,5 @@ __all__ = [
     "is_daily_quota_exhausted",
     "is_tech_job",
     "process_unprocessed_jobs",
+    "parse_salary",
 ]

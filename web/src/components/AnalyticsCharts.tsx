@@ -12,7 +12,7 @@ import {
   Pie,
 } from "recharts";
 import type { MarketAnalytics, MarketMetricItem } from "@/lib/turso";
-import { Terminal, Cloud, Database, Code2 } from "lucide-react";
+import { Terminal, Cloud, Database, Code2, Banknote } from "lucide-react";
 import SpotlightCard from "@/components/SpotlightCard";
 
 interface AnalyticsChartsProps {
@@ -32,6 +32,40 @@ interface TooltipPayloadItem {
   name: string;
   value: number;
   payload: MarketMetricItem;
+}
+
+interface SalaryTooltipPayloadItem {
+  name: string;
+  value: number;
+  payload: {
+    skill: string;
+    avg_salary: number;
+    sample_count: number;
+  };
+}
+
+function CustomSalaryTooltip({
+  active,
+  payload,
+}: {
+  active?: boolean;
+  payload?: SalaryTooltipPayloadItem[];
+}) {
+  if (active && payload && payload.length) {
+    const data = payload[0].payload;
+    return (
+      <div className="rounded-lg bg-[#0c0d12] border border-white/10 px-3.5 py-2.5 text-xs shadow-2xl">
+        <div className="font-semibold text-zinc-100">{data.skill}</div>
+        <div className="font-mono text-cyan-400 mt-1 flex items-center gap-1.5">
+          <span>฿{data.avg_salary.toLocaleString()}/mo</span>
+          <span className="text-zinc-500">
+            ({data.sample_count} posting{data.sample_count > 1 ? "s" : ""})
+          </span>
+        </div>
+      </div>
+    );
+  }
+  return null;
 }
 
 function CustomBarTooltip({
@@ -206,6 +240,93 @@ export default function AnalyticsCharts({ analytics }: AnalyticsChartsProps) {
           </div>
         </SpotlightCard>
       </div>
+
+      {/* Chart 3: Top Compensated Tech Skills */}
+      <SpotlightCard className="p-6">
+        <div className="flex items-center justify-between mb-4 pb-3 border-b border-white/[0.06]">
+          <div className="flex items-center gap-2.5">
+            <Banknote className="h-4 w-4 text-cyan-400" />
+            <h3 className="text-sm font-semibold text-white tracking-tight">
+              Top Compensated Skills (THB/month)
+            </h3>
+          </div>
+          <span className="text-[10px] font-mono text-zinc-500 uppercase">
+            Compensation Benchmarks
+          </span>
+        </div>
+
+        {analytics.top_compensated_skills && analytics.top_compensated_skills.length > 0 ? (
+          <div className="space-y-4">
+            <div className="h-64 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={analytics.top_compensated_skills}
+                  layout="vertical"
+                  margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                >
+                  <XAxis
+                    type="number"
+                    stroke="#52525b"
+                    fontSize={11}
+                    tickLine={false}
+                    axisLine={false}
+                    tickFormatter={(v) => `฿${(v / 1000).toFixed(0)}k`}
+                  />
+                  <YAxis
+                    dataKey="skill"
+                    type="category"
+                    stroke="#a1a1aa"
+                    fontSize={11}
+                    tickLine={false}
+                    axisLine={false}
+                    width={90}
+                  />
+                  <Tooltip
+                    content={<CustomSalaryTooltip />}
+                    cursor={{ fill: "rgba(255,255,255,0.03)" }}
+                  />
+                  <Bar dataKey="avg_salary" radius={[0, 4, 4, 0]}>
+                    {analytics.top_compensated_skills.map((_, index) => (
+                      <Cell
+                        key={`cell-salary-${index}`}
+                        fill={
+                          index === 0
+                            ? "#06b6d4"
+                            : index === 1
+                            ? "#38bdf8"
+                            : "#3b82f6"
+                        }
+                      />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Quick Benchmark Pills */}
+            <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-white/[0.04]">
+              {analytics.top_compensated_skills.slice(0, 6).map((item) => (
+                <div
+                  key={item.skill}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-zinc-900 border border-white/[0.06] text-xs font-mono"
+                >
+                  <span className="text-zinc-300">{item.skill}:</span>
+                  <span className="text-cyan-400 font-semibold">
+                    ฿{item.avg_salary.toLocaleString()}/mo
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="h-48 flex flex-col items-center justify-center text-center p-6 border border-dashed border-white/[0.08] rounded-xl bg-zinc-950/20">
+            <Banknote className="h-8 w-8 text-zinc-600 mb-2.5 stroke-1" />
+            <p className="text-xs font-mono text-zinc-400 max-w-md">
+              Insufficient salary data disclosed across current postings. As additional postings with compensation details are ingested, compensation benchmarks will automatically populate here.
+            </p>
+          </div>
+        )}
+      </SpotlightCard>
 
       {/* Database & Framework Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

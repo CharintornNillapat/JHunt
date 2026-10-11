@@ -107,6 +107,86 @@ class TursoClient:
         elif hasattr(self.client, "batch"):
             self.client.batch([sql])
 
+    def _get_jobs_columns(self) -> set[str]:
+        """Inspects existing column names of jobs table in Turso."""
+        if not self.client:
+            return set()
+        try:
+            if hasattr(self.client, "execute"):
+                rs = self.client.execute("PRAGMA table_info(jobs);")
+            elif hasattr(self.client, "batch"):
+                res = self.client.batch(["PRAGMA table_info(jobs);"])
+                rs = res[0] if res else None
+            else:
+                return set()
+
+            rows = getattr(rs, "rows", None)
+            if rows is None:
+                if hasattr(rs, "fetchall"):
+                    try:
+                        rows = rs.fetchall()
+                    except Exception:
+                        rows = None
+                elif hasattr(rs, "__iter__") and not isinstance(rs, (str, bytes)):
+                    try:
+                        rows = list(rs)
+                    except Exception:
+                        rows = None
+
+            if not rows:
+                return set()
+
+            cols: set[str] = set()
+            for row in rows:
+                if hasattr(row, "__getitem__"):
+                    try:
+                        cols.add(str(row["name"]).strip().lower())
+                    except (TypeError, KeyError, IndexError):
+                        if len(row) > 1:
+                            cols.add(str(row[1]).strip().lower())
+                elif hasattr(row, "name"):
+                    cols.add(str(row.name).strip().lower())
+            return cols
+        except Exception as e:
+            logger.debug(f"[TursoClient] Failed to inspect jobs columns ({e}).")
+            return set()
+
+    def _migrate_jobs_schema(self) -> None:
+        """
+        Self-healing schema migration for jobs table in Turso.
+        Ensures min_salary, max_salary, and currency columns exist.
+        """
+        if not self.client:
+            return
+
+        cols = self._get_jobs_columns()
+        if not cols:
+            return
+
+        if "min_salary" not in cols:
+            try:
+                logger.info("[TursoClient] Adding missing column 'min_salary' to jobs...")
+                self._execute_ddl("ALTER TABLE jobs ADD COLUMN min_salary INTEGER;")
+                cols.add("min_salary")
+            except Exception as e:
+                logger.warning(f"[TursoClient] Failed to add column 'min_salary': {e}")
+
+        if "max_salary" not in cols:
+            try:
+                logger.info("[TursoClient] Adding missing column 'max_salary' to jobs...")
+                self._execute_ddl("ALTER TABLE jobs ADD COLUMN max_salary INTEGER;")
+                cols.add("max_salary")
+            except Exception as e:
+                logger.warning(f"[TursoClient] Failed to add column 'max_salary': {e}")
+
+        if "currency" not in cols:
+            try:
+                logger.info("[TursoClient] Adding missing column 'currency' to jobs...")
+                self._execute_ddl("ALTER TABLE jobs ADD COLUMN currency TEXT DEFAULT 'THB';")
+                cols.add("currency")
+            except Exception as e:
+                logger.warning(f"[TursoClient] Failed to add column 'currency': {e}")
+
     def _get_skills_extracted_columns(self) -> set[str]:
         """Inspects existing column names of skills_extracted table in Turso."""
         if not self.client:
@@ -235,6 +315,7 @@ class TursoClient:
 
         # 2. Self-healing migration for legacy columns
         try:
+            self._migrate_jobs_schema()
             self._migrate_skills_extracted_schema()
         except Exception as e:
             logger.warning(f"[TursoClient] Schema migration check encountered non-fatal error: {e}")
@@ -283,6 +364,13 @@ class TursoClient:
             if not job_id:
                 continue
 
+            min_salary = job.get("min_salary")
+            max_salary = job.get("max_salary")
+            currency = job.get("currency") or "THB"
+            if min_salary is None and max_salary is None and (job.get("salary") or job.get("description")):
+                from src.extractor.salary_parser import parse_salary
+                min_salary, max_salary, currency = parse_salary(job.get("salary"), job.get("description"))
+
             raw_content = job.get("raw_content")
             if raw_content is None:
                 raw_payload = {
@@ -298,8 +386,8 @@ class TursoClient:
                 raw_content_str = str(raw_content)
 
             stmts.append((
-                "INSERT OR IGNORE INTO jobs (id, title, company, url, location, salary, work_type, raw_content, posted_at, source) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT OR IGNORE INTO jobs (id, title, company, url, location, salary, work_type, raw_content, posted_at, source, min_salary, max_salary, currency) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 [
                     job_id,
                     str(job.get("title") or "").strip(),
@@ -311,6 +399,9 @@ class TursoClient:
                     raw_content_str,
                     str(job.get("posted_at") or job.get("listing_date") or "").strip() or None,
                     str(job.get("source") or "").strip() or None,
+                    min_salary,
+                    max_salary,
+                    str(currency or "THB").strip(),
                 ],
             ))
 
@@ -331,12 +422,14 @@ class TursoClient:
             r = self._normalize_skill_record(item)
             if not r or not r.get("job_id"):
                 continue
+
+            skill_name = str(r.get("skill_name") or (r.get("must_have_skills")[0] if isinstance(r.get("must_have_skills"), list) and r.get("must_have_skills") else "")).strip() or None
             stmts.append((
                 """
                 INSERT INTO skills_extracted (
                     job_id, experience_level, must_have_skills, nice_to_have_skills,
-                    frameworks, databases, cloud_infra, tools
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    frameworks, databases, cloud_infra, tools, skill_name
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(job_id) DO UPDATE SET
                     experience_level = excluded.experience_level,
                     must_have_skills = excluded.must_have_skills,
@@ -345,6 +438,7 @@ class TursoClient:
                     databases = excluded.databases,
                     cloud_infra = excluded.cloud_infra,
                     tools = excluded.tools,
+                    skill_name = COALESCE(excluded.skill_name, skills_extracted.skill_name),
                     extracted_at = CURRENT_TIMESTAMP
                 """,
                 [
@@ -356,6 +450,7 @@ class TursoClient:
                     self._to_json_str(r.get("databases")),
                     self._to_json_str(r.get("cloud_infra")),
                     self._to_json_str(r.get("tools")),
+                    skill_name,
                 ],
             ))
 

@@ -13,6 +13,7 @@ import requests
 
 from src.models import RawJob
 from src.scrapers.base import BaseScraper
+from src.extractor.salary_parser import parse_salary
 
 logger = logging.getLogger("JHunt.Scrapers.JobsDB")
 
@@ -99,6 +100,8 @@ class JobsDBScraper(BaseScraper):
         description = "\n\n".join(desc_parts) if desc_parts else None
 
         listing_date = str(item.get("listingDate") or "").strip()
+        salary_str = (item.get("salaryLabel") or "").strip() or None
+        min_salary, max_salary, currency = parse_salary(salary_str, description)
 
         return RawJob(
             id=job_id,
@@ -106,7 +109,7 @@ class JobsDBScraper(BaseScraper):
             company=company,
             url=self.JOB_URL.format(job_id=raw_id),
             location=", ".join(filter(None, locations)) or None,
-            salary=(item.get("salaryLabel") or "").strip() or None,
+            salary=salary_str,
             work_type=" / ".join(dict.fromkeys(filter(None, work_bits))) or None,
             description=description,
             source="jobsdb",
@@ -114,6 +117,9 @@ class JobsDBScraper(BaseScraper):
             teaser=teaser or None,
             bullet_points=bullet_points,
             listing_date=listing_date or None,
+            min_salary=min_salary,
+            max_salary=max_salary,
+            currency=currency,
         )
 
     def scrape(self, keywords: Optional[List[str]] = None, limit: int = 50) -> List[RawJob]:
