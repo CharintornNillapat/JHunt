@@ -17,6 +17,7 @@ from src.extractor.gemini_client import (
     is_daily_quota_exhausted,
 )
 from src.extractor.schemas import BatchExtractedJob, ExtractedJob
+from src.extractor.text_cleaner import clean_job_description
 from src.extractor.text_sanitizer import (
     build_sanitized_job_prompt,
     clean_html,
@@ -114,6 +115,111 @@ All qualified applicants will receive consideration regardless of race or gender
         self.assertNotIn("Provident fund", prompt)
 
 
+class TestJobDescriptionCleaner(unittest.TestCase):
+    def test_strip_welfare_benefits_english(self):
+        markers = [
+            "benefits:", "welfare:", "what we offer:", "perks:",
+            "about us:", "about company:", "how to apply:", "company overview:",
+        ]
+        for marker in markers:
+            raw = f"""
+            Requirements:
+            - 3+ years experience with Python and Docker
+            - Kubernetes, PostgreSQL, and SQL query tuning
+
+            {marker}
+            - Premium health insurance and dental plan
+            - Annual performance bonus and provident fund
+            - Free barista coffee, snacks, and company trips
+            """
+            cleaned = clean_job_description(raw, max_chars=1500)
+            self.assertIn("Python", cleaned, f"Should keep Python for marker {marker}")
+            self.assertIn("Docker", cleaned, f"Should keep Docker for marker {marker}")
+            self.assertIn("Kubernetes", cleaned, f"Should keep Kubernetes for marker {marker}")
+            self.assertIn("SQL", cleaned, f"Should keep SQL for marker {marker}")
+            self.assertNotIn(marker, cleaned.lower(), f"Should remove marker {marker}")
+            self.assertNotIn("health insurance", cleaned.lower(), f"Should remove perks for {marker}")
+            self.assertNotIn("barista coffee", cleaned.lower(), f"Should remove perks for {marker}")
+
+    def test_strip_welfare_benefits_thai(self):
+        markers = [
+            "สวัสดิการ:", "สิทธิประโยชน์:", "เกี่ยวกับบริษัท:",
+            "วิธีการสมัคร:", "ข้อมูลติดต่อ:",
+        ]
+        for marker in markers:
+            raw = f"""
+            คุณสมบัติ:
+            - สามารถพัฒนา Backend ด้วย Python, FastAPI, Docker
+            - ใช้งานฐานข้อมูล SQL และ PostgreSQL ได้อย่างมีประสิทธิภาพ
+
+            {marker}
+            - ประกันสุขภาพกลุ่มและประกันอุบัติเหตุ
+            - โบนัสประจำปีและกองทุนสำรองเลี้ยงชีพ
+            - เบี้ยขยันและวันหยุดพักร้อน
+            """
+            cleaned = clean_job_description(raw, max_chars=1500)
+            self.assertIn("Python", cleaned, f"Should keep Python for Thai marker {marker}")
+            self.assertIn("FastAPI", cleaned, f"Should keep FastAPI for Thai marker {marker}")
+            self.assertIn("Docker", cleaned, f"Should keep Docker for Thai marker {marker}")
+            self.assertIn("SQL", cleaned, f"Should keep SQL for Thai marker {marker}")
+            self.assertNotIn(marker, cleaned, f"Should remove Thai marker {marker}")
+            self.assertNotIn("ประกันสุขภาพ", cleaned, f"Should remove perks for {marker}")
+            self.assertNotIn("กองทุนสำรองเลี้ยงชีพ", cleaned, f"Should remove perks for {marker}")
+
+    def test_truncation_limit_enforcement(self):
+        long_text = "\n".join([f"Requirement {i}: Python, Docker, Kubernetes, SQL, AWS, Kafka" for i in range(100)])
+        for limit in [100, 300, 500, 1000, 1500]:
+            cleaned = clean_job_description(long_text, max_chars=limit)
+            self.assertLessEqual(len(cleaned), limit, f"Cleaned text must be <= {limit} characters")
+            self.assertGreater(len(cleaned), int(limit * 0.6), "Cleaned text should not be overly truncated")
+
+    def test_preservation_of_core_technical_keywords(self):
+        raw = """
+        About Us:
+        Leading fintech organization based in Bangkok.
+
+        Role & Requirements:
+        - Must have deep knowledge of Python, Docker, Kubernetes, and SQL
+        - Hands-on experience with FastAPI, Redis, PostgreSQL, and AWS
+        - CI/CD automation with GitHub Actions
+
+        Benefits:
+        - Work from home allowance
+        - Health insurance
+        """
+        cleaned = clean_job_description(raw, max_chars=1500)
+        for keyword in ["Python", "Docker", "Kubernetes", "SQL", "FastAPI", "Redis", "PostgreSQL", "AWS"]:
+            self.assertIn(keyword, cleaned, f"Core keyword {keyword} must be preserved")
+        self.assertNotIn("About Us", cleaned)
+        self.assertNotIn("Benefits", cleaned)
+        self.assertNotIn("Health insurance", cleaned)
+
+    def test_safe_handling_of_empty_none_or_short_descriptions(self):
+        self.assertEqual(clean_job_description(""), "")
+        self.assertEqual(clean_job_description(None), "")
+        self.assertEqual(clean_job_description("   "), "")
+        self.assertEqual(clean_job_description("\n\t\n"), "")
+        self.assertEqual(clean_job_description("Python Developer"), "Python Developer")
+        short_desc = "Junior Go Developer at TechCorp"
+        self.assertEqual(clean_job_description(short_desc, max_chars=1500), short_desc)
+
+    def test_normalize_whitespace_and_blank_lines(self):
+        raw = """
+        Requirements:
+
+        -   Python     and    Docker
+
+        -       FastAPI and      SQL
+
+
+        """
+        cleaned = clean_job_description(raw)
+        self.assertNotIn("     ", cleaned)
+        self.assertNotIn("\n\n\n", cleaned)
+        self.assertIn("Python and Docker", cleaned)
+        self.assertIn("FastAPI and SQL", cleaned)
+
+
 class TestGeminiExtractor(unittest.TestCase):
     def setUp(self):
         self.mock_client = MagicMock()
@@ -173,6 +279,28 @@ class TestGeminiExtractor(unittest.TestCase):
         self.assertEqual([item["id"] for item in sent], [0, 1, 2])
         self.assertEqual(set(sent[0]), {"id", "title", "company", "description"})
         self.assertIn("FastAPI", sent[0]["description"])
+
+    def test_extract_batch_cleans_candidate_descriptions(self):
+        jobs = [{
+            "id": "job_999",
+            "title": "Backend Lead",
+            "company": "Bangkok Bank Tech",
+            "description": (
+                "About Company:\nAcme Corp is big.\n\n"
+                "Requirements:\n- Python, Docker, Kubernetes, SQL\n\n"
+                "Benefits:\n- Health insurance\n- Free coffee\n"
+            ),
+        }]
+        self.mock_client.models.generate_content.return_value = self._respond([])
+        self.extractor.extract_batch(jobs)
+
+        sent = json.loads(self.mock_client.models.generate_content.call_args[1]["contents"])
+        desc = sent[0]["description"]
+        self.assertIn("Python", desc)
+        self.assertIn("Docker", desc)
+        self.assertNotIn("About Company", desc)
+        self.assertNotIn("Health insurance", desc)
+        self.assertLessEqual(len(desc), 1500)
 
     def test_extract_batch_discards_unknown_and_duplicate_ids(self):
         jobs = [_job(0), _job(1)]

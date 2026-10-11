@@ -100,7 +100,10 @@ def build_sanitized_job_prompt(job: Dict[str, Any], max_chars: int = 2500) -> st
     location = clean_html(str(job.get("location") or ""))
     salary = clean_html(str(job.get("salary") or ""))
 
-    # Raw content fields: teaser and bullet_points
+    # Raw content fields: teaser, description, and bullet_points
+    desc = clean_html(str(job.get("description") or ""))
+    desc_clean = strip_boilerplate(desc)
+
     teaser = clean_html(str(job.get("teaser") or ""))
     teaser_clean = strip_boilerplate(teaser)
 
@@ -123,6 +126,8 @@ def build_sanitized_job_prompt(job: Dict[str, Any], max_chars: int = 2500) -> st
         parts.append(f"Location: {location}")
     if salary:
         parts.append(f"Salary: {salary}")
+    if desc_clean:
+        parts.append(f"Description:\n{desc_clean}")
     if teaser_clean:
         parts.append(f"Summary: {teaser_clean}")
     if bullets_text:

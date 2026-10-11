@@ -15,6 +15,7 @@ from google.genai import types
 
 from src.extractor.gemini_client import BaseGeminiService, DailyQuotaExhaustedError
 from src.extractor.schemas import BatchExtractedJob, ExtractedJob
+from src.extractor.text_cleaner import clean_job_description
 from src.extractor.text_sanitizer import build_sanitized_job_prompt
 
 if TYPE_CHECKING:
@@ -118,15 +119,20 @@ class GeminiExtractor(BaseGeminiService):
         if not jobs:
             return {}
 
-        payload = [
-            {
+        payload = []
+        for i, job in enumerate(jobs):
+            raw_desc = job.get("description")
+            if raw_desc is not None and str(raw_desc).strip():
+                desc_text = str(raw_desc)
+            else:
+                desc_text = build_sanitized_job_prompt(job, max_chars=MAX_DESCRIPTION_CHARS)
+            cleaned_desc = clean_job_description(desc_text, max_chars=MAX_DESCRIPTION_CHARS)
+            payload.append({
                 "id": i,
                 "title": str(job.get("title") or ""),
                 "company": str(job.get("company") or ""),
-                "description": build_sanitized_job_prompt(job, max_chars=MAX_DESCRIPTION_CHARS),
-            }
-            for i, job in enumerate(jobs)
-        ]
+                "description": cleaned_desc,
+            })
         config = types.GenerateContentConfig(
             system_instruction=EXTRACTION_SYSTEM_INSTRUCTION,
             response_mime_type="application/json",
