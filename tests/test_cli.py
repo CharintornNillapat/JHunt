@@ -212,5 +212,30 @@ class TestTelegramMarketBrief(unittest.TestCase):
         self.assertIn("PromptPay Reconciliation Gateway", payload["text"])
 
 
+class TestCIConfiguration(unittest.TestCase):
+    def test_workflow_scraper_cron_enforces_pythonunbuffered(self):
+        workflow_path = Path(__file__).resolve().parent.parent / ".github" / "workflows" / "scraper_cron.yml"
+        self.assertTrue(workflow_path.exists(), f"Workflow file {workflow_path} not found")
+        content = workflow_path.read_text(encoding="utf-8")
+        self.assertIn('PYTHONUNBUFFERED: "1"', content)
+
+
+class TestShutdownFlushing(unittest.TestCase):
+    @patch("os._exit")
+    @patch("logging.shutdown")
+    @patch("sys.stderr.flush")
+    @patch("sys.stdout.flush")
+    def test_main_shutdown_flushes_stdout_and_stderr(
+        self, mock_stdout_flush, mock_stderr_flush, mock_log_shutdown, mock_exit
+    ):
+        from main import flush_and_exit
+
+        flush_and_exit(0)
+        mock_stdout_flush.assert_called_once()
+        mock_stderr_flush.assert_called_once()
+        mock_log_shutdown.assert_called_once()
+        mock_exit.assert_called_once_with(0)
+
+
 if __name__ == "__main__":
     unittest.main()

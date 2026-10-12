@@ -68,6 +68,7 @@ jobs:
       # --limit 30: batch extraction sends 15 jobs per request, so this is 2 Gemini calls.
       - name: Run JHunt pipeline
         env:
+          PYTHONUNBUFFERED: "1"
           JHUNT_REQUIRE_TURSO: "1"
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}

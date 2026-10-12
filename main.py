@@ -446,6 +446,18 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 1
 
 
+def flush_and_exit(exit_code: int = 0) -> None:
+    """Flushes standard output and error streams before logging shutdown and os._exit."""
+    try:
+        sys.stdout.flush()
+        sys.stderr.flush()
+    except Exception:
+        pass
+    logging.shutdown()
+    # Force terminate process to prevent lingering async/aiohttp/libsql background connections from hanging CI
+    os._exit(exit_code if isinstance(exit_code, int) else 0)
+
+
 if __name__ == "__main__":
     exit_code = 1
     try:
@@ -454,6 +466,4 @@ if __name__ == "__main__":
         logger.error(f"[Main] Fatal unhandled error: {e}")
         exit_code = 1
     finally:
-        logging.shutdown()
-        # Force terminate process to prevent lingering async/aiohttp/libsql background connections from hanging CI
-        os._exit(exit_code if isinstance(exit_code, int) else 0)
+        flush_and_exit(exit_code)
