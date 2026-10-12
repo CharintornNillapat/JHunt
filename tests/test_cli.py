@@ -76,6 +76,24 @@ class TestSubcommandRouting(unittest.TestCase):
         self.assertEqual(code, 0)
         mock_analyze.assert_called_once()
 
+    @patch("main.get_active_scrapers")
+    def test_run_scrapers_configures_per_adapter_limits(self, mock_get_scrapers):
+        mock_jobsdb = MagicMock()
+        mock_jobsdb.__class__.__name__ = "JobsDBScraper"
+        mock_blognone = MagicMock()
+        mock_blognone.__class__.__name__ = "BlognoneScraper"
+        mock_jobthai = MagicMock()
+        mock_jobthai.__class__.__name__ = "JobThaiScraper"
+        mock_get_scrapers.return_value = [mock_jobsdb, mock_blognone, mock_jobthai]
+
+        from main import run_scrapers
+
+        run_scrapers({"keywords": ["python"]})
+
+        mock_jobsdb.scrape.assert_called_once_with(keywords=["python"], limit=150, known_ids=set())
+        mock_blognone.scrape.assert_called_once_with(keywords=["python"], limit=30, known_ids=set())
+        mock_jobthai.scrape.assert_called_once_with(keywords=["python"], limit=30, known_ids=set())
+
 
 # main.py runs load_dotenv() at import, so a developer's real .env is in os.environ.
 # Blank the credentials so the pipeline under test can never reach production

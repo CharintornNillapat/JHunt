@@ -80,20 +80,38 @@ def get_config() -> dict:
     }
 
 
-def run_scrapers(config: dict, limit: int = 50) -> list[RawJob]:
+DEFAULT_SCRAPER_LIMITS = {
+    "JobsDBScraper": 150,
+    "BlognoneScraper": 30,
+    "JobThaiScraper": 30,
+}
+
+
+def run_scrapers(
+    config: dict,
+    limit: Optional[int] = None,
+    state: Optional[StateManager] = None,
+    storage: Optional[Any] = None,
+) -> list[RawJob]:
     """
     Instantiates and executes all active scrapers via the adapter interface.
-    Aggregates jobs from JobsDB, Blognone, and JobThai.
+    Aggregates jobs from JobsDB, Blognone, and JobThai using per-adapter limits
+    and passes known_ids to optimize detail fetching.
     """
     all_jobs: list[RawJob] = []
     scrapers = get_active_scrapers()
     keywords = config.get("keywords") or ["python developer", "data engineer"]
 
+    known_ids: set[str] = set()
+    if state is not None and hasattr(state, "_seen"):
+        known_ids.update(state._seen.keys())
+
     for scraper in scrapers:
         name = scraper.__class__.__name__
-        print(f"[Main] Running {name}...")
+        adapter_limit = limit if limit is not None else DEFAULT_SCRAPER_LIMITS.get(name, 50)
+        print(f"[Main] Running {name} (limit={adapter_limit})...")
         try:
-            scraped = scraper.scrape(keywords=keywords, limit=limit)
+            scraped = scraper.scrape(keywords=keywords, limit=adapter_limit, known_ids=known_ids)
             print(f"[Main] {name} yielded {len(scraped)} job(s).")
             all_jobs.extend(scraped)
         except Exception as e:
@@ -148,7 +166,7 @@ def run_alert_pipeline(
             notifier = None
 
     try:
-        raw_jobs = run_scrapers(config)
+        raw_jobs = run_scrapers(config, state=state)
         print(f"[Main] Total raw jobs scraped: {len(raw_jobs)}")
 
         new_jobs = state.filter_new_jobs(raw_jobs)
@@ -286,7 +304,7 @@ def run_full_pipeline(
 
     try:
         # Step 1: Scrape
-        raw_jobs = run_scrapers(config)
+        raw_jobs = run_scrapers(config, state=state, storage=active_storage)
         results["scraped"] = len(raw_jobs)
         print(f"[Main] Total raw jobs scraped: {len(raw_jobs)}")
 

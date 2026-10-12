@@ -122,7 +122,12 @@ class JobsDBScraper(BaseScraper):
             currency=currency,
         )
 
-    def scrape(self, keywords: Optional[List[str]] = None, limit: int = 50) -> List[RawJob]:
+    def scrape(
+        self,
+        keywords: Optional[List[str]] = None,
+        limit: int = 50,
+        known_ids: Optional[set[str]] = None,
+    ) -> List[RawJob]:
         """
         Executes search across keywords and returns deduplicated RawJob list.
         """
@@ -142,7 +147,7 @@ class JobsDBScraper(BaseScraper):
             keyword_count = 0
 
             for page in range(1, self.MAX_PAGES + 1):
-                if len(jobs) >= limit:
+                if keyword_count >= limit:
                     break
 
                 if page > 1 or keyword != search_keywords[0]:
@@ -157,7 +162,7 @@ class JobsDBScraper(BaseScraper):
                     break
 
                 for item in items:
-                    if len(jobs) >= limit:
+                    if keyword_count >= limit:
                         break
 
                     job = self._parse_job(item)
@@ -176,8 +181,6 @@ class JobsDBScraper(BaseScraper):
                     break
 
             logger.info(f"[JobsDB] '{keyword}' -> {keyword_count} new job(s)")
-            if len(jobs) >= limit:
-                break
 
         if not jobs:
             logger.warning(

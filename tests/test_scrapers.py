@@ -171,6 +171,31 @@ class TestJobsDBScraper(unittest.TestCase):
         self.assertEqual(len(jobs), 1)
         self.assertEqual(jobs[0].id, "jobsdb_valid_456")
 
+    @patch("time.sleep")
+    @patch("requests.Session.get")
+    def test_jobsdb_scrape_covers_all_keywords(self, mock_get, mock_sleep):
+        def mock_fetch(url, params=None, timeout=None):
+            kw = (params or {}).get("keywords")
+            resp = MagicMock()
+            resp.status_code = 200
+            if kw == "python":
+                resp.json.return_value = {
+                    "totalCount": 1,
+                    "data": [{"id": "111", "title": "Python Dev", "companyName": "Co A"}],
+                }
+            else:
+                resp.json.return_value = {
+                    "totalCount": 1,
+                    "data": [{"id": "222", "title": "Data Eng", "companyName": "Co B"}],
+                }
+            return resp
+
+        mock_get.side_effect = mock_fetch
+        jobs = self.scraper.scrape(keywords=["python", "data"], limit=1)
+        self.assertEqual(len(jobs), 2)
+        ids = [j.id for j in jobs]
+        self.assertEqual(ids, ["jobsdb_111", "jobsdb_222"])
+
 
 class TestBlognoneScraper(unittest.TestCase):
     def setUp(self):
@@ -286,6 +311,60 @@ class TestBlognoneScraper(unittest.TestCase):
         self.assertIn("Position: AI Engineer", job.description)
         self.assertIn("Technical Stack: Python, PyTorch, LLM", job.description)
 
+    @patch("time.sleep")
+    @patch("requests.Session.get")
+    def test_blognone_scrape_covers_all_keywords(self, mock_get, mock_sleep):
+        scraper = BlognoneScraper(fetch_details=False)
+
+        def mock_fetch(url, params=None, timeout=None):
+            resp = MagicMock()
+            resp.status_code = 200
+            kw = (params or {}).get("q", "")
+            ssr = {
+                "api": {"endpoint": "https://jobs-api.blognone.com"},
+                "r": {
+                    "data": {
+                        "jobs_count": 1,
+                        "jobs": [{"slug": f"job-{kw}", "title": f"Title {kw}", "company": {"name_en": "Co"}}],
+                    }
+                },
+            }
+            resp.text = f"<script>{json.dumps(ssr)}</script>"
+            return resp
+
+        mock_get.side_effect = mock_fetch
+        jobs = scraper.scrape(keywords=["python", "data"], limit=1)
+        self.assertEqual(len(jobs), 2)
+        ids = [j.id for j in jobs]
+        self.assertEqual(ids, ["blognone_job-python", "blognone_job-data"])
+
+    @patch("requests.Session.get")
+    def test_blognone_skips_detail_fetch_for_known_ids(self, mock_get):
+        scraper = BlognoneScraper(fetch_details=True)
+        search_resp = MagicMock()
+        search_resp.status_code = 200
+        search_resp.text = self.mock_search_html
+        mock_get.return_value = search_resp
+
+        with patch.object(scraper, "_fetch_detail_description") as mock_detail:
+            jobs = scraper.scrape(keywords=["python"], limit=1, known_ids={"blognone_ai-engineer-Ir_5"})
+            self.assertEqual(len(jobs), 1)
+            mock_detail.assert_not_called()
+
+    @patch("time.sleep")
+    @patch("requests.Session.get")
+    def test_blognone_rate_limiting_delay_before_new_detail_fetch(self, mock_get, mock_sleep):
+        scraper = BlognoneScraper(fetch_details=True)
+        search_resp = MagicMock()
+        search_resp.status_code = 200
+        search_resp.text = self.mock_search_html
+        mock_get.return_value = search_resp
+
+        with patch.object(scraper, "_fetch_detail_description", return_value="Detail text"):
+            jobs = scraper.scrape(keywords=["python"], limit=1, known_ids=set())
+            self.assertEqual(len(jobs), 1)
+            mock_sleep.assert_called_with(scraper.REQUEST_DELAY)
+
 
 class TestJobThaiScraper(unittest.TestCase):
     def setUp(self):
@@ -389,6 +468,79 @@ class TestJobThaiScraper(unittest.TestCase):
         jobs = self.scraper.scrape(keywords=["python developer"], limit=10)
         self.assertEqual(len(jobs), 1)
         self.assertEqual(jobs[0].description, "")
+
+    @patch("time.sleep")
+    @patch("requests.Session.get")
+    def test_jobthai_scrape_covers_all_keywords(self, mock_get, mock_sleep):
+        scraper = JobThaiScraper(fetch_details=False)
+
+        def mock_search(url, params=None, timeout=None):
+            vars_json = json.loads(params["variables"])
+            kw = vars_json["searchJobsFilter"]["keyword"]
+            resp = MagicMock()
+            resp.status_code = 200
+            resp.json.return_value = {
+                "data": {
+                    "searchJobs": {
+                        "data": {
+                            "total": 1,
+                            "data": [{"id": 100 if kw == "python" else 200, "jobTitle": f"Dev {kw}", "companyName": "Co"}],
+                        }
+                    }
+                }
+            }
+            return resp
+
+        mock_get.side_effect = mock_search
+        jobs = scraper.scrape(keywords=["python", "data"], limit=1)
+        self.assertEqual(len(jobs), 2)
+        ids = [j.id for j in jobs]
+        self.assertEqual(ids, ["jobthai_100", "jobthai_200"])
+
+    @patch("requests.Session.get")
+    def test_jobthai_skips_detail_fetch_for_known_ids(self, mock_get):
+        scraper = JobThaiScraper(fetch_details=True)
+        search_resp = MagicMock()
+        search_resp.status_code = 200
+        search_resp.json.return_value = {
+            "data": {
+                "searchJobs": {
+                    "data": {
+                        "total": 1,
+                        "data": [{"id": 1547764, "jobTitle": "Dev", "companyName": "Co"}],
+                    }
+                }
+            }
+        }
+        mock_get.return_value = search_resp
+
+        with patch.object(scraper, "_fetch_job_description") as mock_desc:
+            jobs = scraper.scrape(keywords=["python"], limit=1, known_ids={"jobthai_1547764"})
+            self.assertEqual(len(jobs), 1)
+            mock_desc.assert_not_called()
+
+    @patch("time.sleep")
+    @patch("requests.Session.get")
+    def test_jobthai_rate_limiting_delay_before_new_detail_fetch(self, mock_get, mock_sleep):
+        scraper = JobThaiScraper(fetch_details=True)
+        search_resp = MagicMock()
+        search_resp.status_code = 200
+        search_resp.json.return_value = {
+            "data": {
+                "searchJobs": {
+                    "data": {
+                        "total": 1,
+                        "data": [{"id": 1547764, "jobTitle": "Dev", "companyName": "Co"}],
+                    }
+                }
+            }
+        }
+        mock_get.return_value = search_resp
+
+        with patch.object(scraper, "_fetch_job_description", return_value="Job details"):
+            jobs = scraper.scrape(keywords=["python"], limit=1, known_ids=set())
+            self.assertEqual(len(jobs), 1)
+            mock_sleep.assert_called_with(scraper.REQUEST_DELAY)
 
 
 class TestContractParityAndZeroNetwork(unittest.TestCase):

@@ -54,13 +54,19 @@ class BaseScraper(ABC):
         return session
 
     @abstractmethod
-    def scrape(self, keywords: List[str], limit: int = 50) -> List[RawJob]:
+    def scrape(
+        self,
+        keywords: Optional[List[str]] = None,
+        limit: int = 50,
+        known_ids: Optional[set[str]] = None,
+    ) -> List[RawJob]:
         """
         Scrapes and returns normalized RawJob instances matching the requested keywords.
         
         Args:
             keywords: List of target search queries (e.g. ['python developer', 'data engineer']).
-            limit: Maximum number of jobs to retrieve across all keywords.
+            limit: Maximum number of jobs to retrieve per keyword.
+            known_ids: Optional set of already-known job IDs to optimize or skip detail fetches.
 
         Returns:
             List of normalized RawJob instances.

@@ -142,7 +142,11 @@ class BlognoneScraper(BaseScraper):
             pass
         return None
 
-    def _parse_job(self, item: Dict[str, Any]) -> Optional[RawJob]:
+    def _parse_job(
+        self,
+        item: Dict[str, Any],
+        known_ids: Optional[set[str]] = None,
+    ) -> Optional[RawJob]:
         """Converts Blognone listing record into normalized RawJob instance."""
         slug = str(item.get("slug") or "").strip()
         title = str(item.get("title") or "").strip()
@@ -185,8 +189,14 @@ class BlognoneScraper(BaseScraper):
         fallback_desc = "\n".join(summary_lines)
 
         # Attempt to retrieve detail description if available
-        detail_desc = self._fetch_detail_description(url)
-        description = detail_desc if detail_desc else fallback_desc
+        if known_ids and job_id in known_ids:
+            description = fallback_desc
+        elif self.fetch_details:
+            time.sleep(self.REQUEST_DELAY)
+            detail_desc = self._fetch_detail_description(url)
+            description = detail_desc if detail_desc else fallback_desc
+        else:
+            description = fallback_desc
 
         min_salary, max_salary, currency = parse_salary(salary, description)
 
@@ -208,7 +218,12 @@ class BlognoneScraper(BaseScraper):
             currency=currency,
         )
 
-    def scrape(self, keywords: Optional[List[str]] = None, limit: int = 50) -> List[RawJob]:
+    def scrape(
+        self,
+        keywords: Optional[List[str]] = None,
+        limit: int = 50,
+        known_ids: Optional[set[str]] = None,
+    ) -> List[RawJob]:
         """Scrapes tech positions matching keywords from Blognone Jobs."""
         search_keywords = keywords if keywords is not None else ["developer", "data"]
         jobs: List[RawJob] = []
@@ -223,7 +238,7 @@ class BlognoneScraper(BaseScraper):
             keyword_count = 0
 
             for page in range(1, self.MAX_PAGES + 1):
-                if len(jobs) >= limit:
+                if keyword_count >= limit:
                     break
 
                 if page > 1 or kw != search_keywords[0]:
@@ -238,10 +253,10 @@ class BlognoneScraper(BaseScraper):
                     break
 
                 for item in items:
-                    if len(jobs) >= limit:
+                    if keyword_count >= limit:
                         break
 
-                    job = self._parse_job(item)
+                    job = self._parse_job(item, known_ids=known_ids)
                     if not job or job.id in seen_ids:
                         continue
 
@@ -257,8 +272,6 @@ class BlognoneScraper(BaseScraper):
                     break
 
             logger.info(f"[Blognone] '{kw}' -> {keyword_count} new job(s)")
-            if len(jobs) >= limit:
-                break
 
         logger.info(f"[Blognone] Total unique jobs: {len(jobs)}")
         return jobs

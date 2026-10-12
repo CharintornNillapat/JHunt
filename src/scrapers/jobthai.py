@@ -163,7 +163,11 @@ class JobThaiScraper(BaseScraper):
             logger.debug(f"[JobThai] Detail fetch exception for job {job_id_int} (graceful fallback): {e}")
             return ""
 
-    def _parse_job(self, item: Dict[str, Any]) -> Optional[RawJob]:
+    def _parse_job(
+        self,
+        item: Dict[str, Any],
+        known_ids: Optional[set[str]] = None,
+    ) -> Optional[RawJob]:
         """Converts JobThai GraphQL record into normalized RawJob instance."""
         raw_id = item.get("id")
         if not raw_id:
@@ -194,7 +198,13 @@ class JobThaiScraper(BaseScraper):
         url = self.JOB_URL.format(job_id=job_id_str)
 
         # Retrieve job description, handling banner-only / missing formats gracefully
-        description = self._fetch_job_description(numeric_id)
+        if known_ids and job_id in known_ids:
+            description = ""
+        elif self.fetch_details:
+            time.sleep(self.REQUEST_DELAY)
+            description = self._fetch_job_description(numeric_id)
+        else:
+            description = ""
         min_salary, max_salary, currency = parse_salary(salary, description)
 
         return RawJob(
@@ -213,7 +223,12 @@ class JobThaiScraper(BaseScraper):
             currency=currency,
         )
 
-    def scrape(self, keywords: Optional[List[str]] = None, limit: int = 50) -> List[RawJob]:
+    def scrape(
+        self,
+        keywords: Optional[List[str]] = None,
+        limit: int = 50,
+        known_ids: Optional[set[str]] = None,
+    ) -> List[RawJob]:
         """Scrapes tech jobs matching keywords from JobThai."""
         search_keywords = keywords if keywords is not None else ["python", "programmer", "developer"]
         jobs: List[RawJob] = []
@@ -228,7 +243,7 @@ class JobThaiScraper(BaseScraper):
             keyword_count = 0
 
             for page in range(1, self.MAX_PAGES + 1):
-                if len(jobs) >= limit:
+                if keyword_count >= limit:
                     break
 
                 if page > 1 or kw != search_keywords[0]:
@@ -238,15 +253,28 @@ class JobThaiScraper(BaseScraper):
                 if not search_res:
                     break
 
-                items = (search_res.get("data") or {}).get("data", [])
+                search_data = search_res.get("data")
+                if isinstance(search_data, list):
+                    items = search_data
+                    total = len(items)
+                elif isinstance(search_data, dict):
+                    items = search_data.get("data", [])
+                    try:
+                        total = int(search_data.get("total") or 0)
+                    except (ValueError, TypeError):
+                        total = 0
+                else:
+                    items = []
+                    total = 0
+
                 if not items:
                     break
 
                 for item in items:
-                    if len(jobs) >= limit:
+                    if keyword_count >= limit:
                         break
 
-                    job = self._parse_job(item)
+                    job = self._parse_job(item, known_ids=known_ids)
                     if not job or job.id in seen_ids:
                         continue
 
@@ -254,16 +282,10 @@ class JobThaiScraper(BaseScraper):
                     jobs.append(job)
                     keyword_count += 1
 
-                try:
-                    total = int((search_res.get("data") or {}).get("total") or 0)
-                except (ValueError, TypeError):
-                    total = 0
                 if page * self.PAGE_SIZE >= total:
                     break
 
             logger.info(f"[JobThai] '{kw}' -> {keyword_count} new job(s)")
-            if len(jobs) >= limit:
-                break
 
         logger.info(f"[JobThai] Total unique jobs: {len(jobs)}")
         return jobs
