@@ -98,7 +98,7 @@ Elevate `JHunt` from a keyword scraper and Telegram alerter into a production-gr
 
 #### Phase 0: Immediate Emergency & Data Integrity Fixes (P0)
 - [x] **Task 0.1: ID Continuity Migration & State Compatibility** (code done; Turso SQL pending)
-- [ ] **Task 0.2: Enforce Turso as Single Source of Truth in CI** (`JHUNT_REQUIRE_TURSO=1`).
+- [x] **Task 0.2: Enforce Turso as Single Source of Truth in CI** (`JHUNT_REQUIRE_TURSO=1`) (code done; workflow not pushed).
 - [ ] **Task 0.3: Restore CI Log Observability** (`PYTHONUNBUFFERED=1`).
 - [ ] **Task 0.4: Restore Scraper Keyword Coverage** (Track `keyword_count >= limit`).
 - [ ] **Task 0.5: Prevent Ingestion Queue Starvation** (`ORDER BY created_at DESC`).

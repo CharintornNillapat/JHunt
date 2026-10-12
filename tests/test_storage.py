@@ -859,6 +859,55 @@ class TestStorageFactory(unittest.TestCase):
         storage = get_storage(database_url="https://mock.turso.io", auth_token="token")
         self.assertEqual(storage, mock_turso)
 
+    def test_get_storage_require_cloud_explicit_raises_when_no_credentials(self):
+        with patch.dict("os.environ", {}, clear=True):
+            with self.assertRaises(RuntimeError) as ctx:
+                get_storage(require_cloud=True)
+            self.assertIn("JHUNT_REQUIRE_TURSO is set but Turso is unavailable", str(ctx.exception))
+
+    def test_get_storage_require_cloud_env_var_raises_when_no_credentials(self):
+        with patch.dict("os.environ", {"JHUNT_REQUIRE_TURSO": "1"}, clear=True):
+            with self.assertRaises(RuntimeError) as ctx:
+                get_storage()
+            self.assertIn("JHUNT_REQUIRE_TURSO is set but Turso is unavailable", str(ctx.exception))
+
+    def test_get_storage_require_cloud_env_var_truthy_variations(self):
+        for val in ("true", "TRUE", "yes", "on", "1"):
+            with self.subTest(val=val):
+                with patch.dict("os.environ", {"JHUNT_REQUIRE_TURSO": val}, clear=True):
+                    with self.assertRaises(RuntimeError):
+                        get_storage()
+
+    def test_get_storage_require_cloud_falsy_env_var_falls_back(self):
+        for val in ("0", "false", "no", "off", "", "   "):
+            with self.subTest(val=val):
+                with patch.dict("os.environ", {"JHUNT_REQUIRE_TURSO": val}, clear=True):
+                    storage = get_storage()
+                    self.assertIsInstance(storage, DatabaseManager)
+
+    def test_get_storage_require_cloud_force_sqlite_raises(self):
+        with patch.dict("os.environ", {"TURSO_DATABASE_URL": "https://test.turso.io", "TURSO_AUTH_TOKEN": "token"}):
+            with self.assertRaises(RuntimeError):
+                get_storage(force_sqlite=True, require_cloud=True)
+
+    @patch("src.storage.TursoClient")
+    def test_get_storage_require_cloud_returns_turso_when_available(self, mock_turso_cls):
+        mock_turso = MagicMock()
+        mock_turso.is_available = True
+        mock_turso_cls.return_value = mock_turso
+
+        storage = get_storage(database_url="https://mock.turso.io", auth_token="token", require_cloud=True)
+        self.assertEqual(storage, mock_turso)
+
+    @patch("src.storage.TursoClient")
+    def test_get_storage_require_cloud_raises_when_turso_client_unavailable(self, mock_turso_cls):
+        mock_turso = MagicMock()
+        mock_turso.is_available = False
+        mock_turso_cls.return_value = mock_turso
+
+        with self.assertRaises(RuntimeError):
+            get_storage(database_url="https://mock.turso.io", auth_token="token", require_cloud=True)
+
 
 
 class TestTursoExporterIntegration(unittest.TestCase):
