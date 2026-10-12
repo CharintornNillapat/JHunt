@@ -39,15 +39,17 @@ def get_storage(
                 turso = TursoClient(database_url=url, auth_token=token)
                 if turso.is_available:
                     return turso
-                logger.info("[Storage] Turso client unavailable. Falling back to local SQLite.")
+                logger.info("[Storage] Turso client unavailable.")
             except Exception as e:
-                logger.warning(f"[Storage] Failed to initialize Turso client ({e}). Falling back to local SQLite.")
+                logger.warning(f"[Storage] Failed to initialize Turso client ({type(e).__name__}).")
 
     if require_cloud:
         raise RuntimeError(
-            "JHUNT_REQUIRE_TURSO is set but Turso is unavailable; refusing to write to ephemeral local SQLite."
+            "Turso is required (require_cloud=True or JHUNT_REQUIRE_TURSO) but unavailable; "
+            "refusing to fall back to local SQLite."
         )
 
+    logger.info("[Storage] Falling back to local SQLite.")
     return DatabaseManager(db_path=db_path)
 
 

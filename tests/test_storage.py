@@ -583,6 +583,25 @@ class TestTursoClient(unittest.TestCase):
         self.assertFalse(turso.is_available)
         self.assertIsNone(turso.client)
 
+    def test_connect_success_log_omits_database_url(self):
+        # Actions logs are public and masking misses the https:// rewrite of the libsql:// secret.
+        with patch("libsql_client.create_client_sync", return_value=MagicMock()):
+            with self.assertLogs("src.storage.turso_client", level="INFO") as logs:
+                turso = TursoClient(database_url="libsql://jhunt-secret-db.turso.io", auth_token="t")
+        self.assertTrue(turso.is_available)
+        for line in logs.output:
+            self.assertNotIn("jhunt-secret-db.turso.io", line)
+
+    def test_connect_failure_log_redacts_host(self):
+        err = OSError("Cannot connect to host jhunt-secret-db.turso.io:443")
+        with patch("libsql_client.create_client_sync", side_effect=err):
+            with self.assertLogs("src.storage.turso_client", level="INFO") as logs:
+                turso = TursoClient(database_url="libsql://jhunt-secret-db.turso.io", auth_token="t")
+        self.assertFalse(turso.is_available)
+        joined = "\n".join(logs.output)
+        self.assertNotIn("jhunt-secret-db.turso.io", joined)
+        self.assertIn("<turso-db>", joined)
+
     def test_has_blueprint(self):
         mock_client = MagicMock()
         turso = TursoClient(client=mock_client)
@@ -863,13 +882,13 @@ class TestStorageFactory(unittest.TestCase):
         with patch.dict("os.environ", {}, clear=True):
             with self.assertRaises(RuntimeError) as ctx:
                 get_storage(require_cloud=True)
-            self.assertIn("JHUNT_REQUIRE_TURSO is set but Turso is unavailable", str(ctx.exception))
+            self.assertIn("Turso is required", str(ctx.exception))
 
     def test_get_storage_require_cloud_env_var_raises_when_no_credentials(self):
         with patch.dict("os.environ", {"JHUNT_REQUIRE_TURSO": "1"}, clear=True):
             with self.assertRaises(RuntimeError) as ctx:
                 get_storage()
-            self.assertIn("JHUNT_REQUIRE_TURSO is set but Turso is unavailable", str(ctx.exception))
+            self.assertIn("Turso is required", str(ctx.exception))
 
     def test_get_storage_require_cloud_env_var_truthy_variations(self):
         for val in ("true", "TRUE", "yes", "on", "1"):
@@ -882,8 +901,9 @@ class TestStorageFactory(unittest.TestCase):
         for val in ("0", "false", "no", "off", "", "   "):
             with self.subTest(val=val):
                 with patch.dict("os.environ", {"JHUNT_REQUIRE_TURSO": val}, clear=True):
-                    storage = get_storage()
+                    storage = get_storage(db_path=":memory:")
                     self.assertIsInstance(storage, DatabaseManager)
+                    storage.close()
 
     def test_get_storage_require_cloud_force_sqlite_raises(self):
         with patch.dict("os.environ", {"TURSO_DATABASE_URL": "https://test.turso.io", "TURSO_AUTH_TOKEN": "token"}):
@@ -907,6 +927,35 @@ class TestStorageFactory(unittest.TestCase):
 
         with self.assertRaises(RuntimeError):
             get_storage(database_url="https://mock.turso.io", auth_token="token", require_cloud=True)
+
+    @patch("src.storage.TursoClient")
+    def test_get_storage_require_cloud_does_not_log_fallback(self, mock_turso_cls):
+        mock_turso = MagicMock()
+        mock_turso.is_available = False
+        mock_turso_cls.return_value = mock_turso
+
+        with self.assertLogs("src.storage", level="INFO") as logs:
+            with self.assertRaises(RuntimeError):
+                get_storage(database_url="https://mock.turso.io", auth_token="token", require_cloud=True)
+        for line in logs.output:
+            self.assertNotIn("Falling back", line)
+
+    @patch("src.storage.TursoClient")
+    def test_get_storage_init_exception_log_omits_message(self, mock_turso_cls):
+        mock_turso_cls.side_effect = RuntimeError("boom jhunt-secret-db.turso.io")
+
+        with self.assertLogs("src.storage", level="INFO") as logs:
+            storage = get_storage(
+                database_url="https://jhunt-secret-db.turso.io",
+                auth_token="token",
+                db_path=":memory:",
+                require_cloud=False,
+            )
+        self.assertIsInstance(storage, DatabaseManager)
+        storage.close()
+        joined = "\n".join(logs.output)
+        self.assertNotIn("jhunt-secret-db.turso.io", joined)
+        self.assertIn("RuntimeError", joined)
 
 
 

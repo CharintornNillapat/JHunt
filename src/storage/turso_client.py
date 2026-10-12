@@ -11,6 +11,7 @@ import json
 import logging
 import os
 from typing import Any, Dict, List, Optional, Tuple, Union
+from urllib.parse import urlparse
 
 import libsql_client
 
@@ -63,10 +64,10 @@ class TursoClient:
                     auth_token=self.auth_token or None,
                 )
                 self.init_schema()
-                logger.info(f"[TursoClient] Connected to Turso cloud database: {self.database_url}")
+                logger.info("[TursoClient] Connected to Turso cloud database.")
             except Exception as e:
                 logger.warning(
-                    f"[TursoClient] Failed to initialize Turso client ({e}). "
+                    f"[TursoClient] Failed to initialize Turso client ({self._redact(e)}). "
                     "Gracefully falling back to local SQLite."
                 )
                 if self.client is not None:
@@ -86,6 +87,15 @@ class TursoClient:
     def is_available(self) -> bool:
         """Returns True if the Turso client is initialized and ready."""
         return self.client is not None
+
+    def _redact(self, text: object) -> str:
+        """Removes the database URL and its hostname from text that is about to be logged."""
+        out = str(text)
+        host = urlparse(self.database_url).hostname if self.database_url else None
+        for secret in (self.database_url, host):
+            if secret:
+                out = out.replace(secret, "<turso-db>")
+        return out
 
     def close(self) -> None:
         """Closes the underlying LibSQL client connection if open."""
