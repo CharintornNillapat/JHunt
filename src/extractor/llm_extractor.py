@@ -211,6 +211,11 @@ def process_unprocessed_jobs(
             break
         except Exception as e:
             logger.warning(f"[BatchExtractor] Batch {n}/{len(batches)} failed unexpectedly ({e}); left queued.")
+            failed_ids = [str(job["id"]) for job in batch]
+            if hasattr(active_storage, "increment_extract_attempts"):
+                active_storage.increment_extract_attempts(failed_ids)
+            if turso and turso is not active_storage and hasattr(turso, "increment_extract_attempts"):
+                turso.increment_extract_attempts(failed_ids)
             continue
 
         if hasattr(active_storage, "save_extracted_skills_batch"):
@@ -226,7 +231,13 @@ def process_unprocessed_jobs(
                 [{"job_id": job_id, "extracted": extracted} for job_id, extracted in results.items()]
             )
         success_count += len(results)
-        missing = len(batch) - len(results)
+        missing_ids = [str(job["id"]) for job in batch if str(job["id"]) not in results]
+        if missing_ids:
+            if hasattr(active_storage, "increment_extract_attempts"):
+                active_storage.increment_extract_attempts(missing_ids)
+            if turso and turso is not active_storage and hasattr(turso, "increment_extract_attempts"):
+                turso.increment_extract_attempts(missing_ids)
+        missing = len(missing_ids)
         logger.info(
             f"[BatchExtractor] Batch {n}/{len(batches)}: {len(results)} extracted"
             + (f", {missing} unanswered and left queued." if missing else ".")

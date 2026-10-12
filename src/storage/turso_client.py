@@ -197,6 +197,14 @@ class TursoClient:
             except Exception as e:
                 logger.warning(f"[TursoClient] Failed to add column 'currency': {e}")
 
+        if "extract_attempts" not in cols:
+            try:
+                logger.info("[TursoClient] Adding missing column 'extract_attempts' to jobs...")
+                self._execute_ddl("ALTER TABLE jobs ADD COLUMN extract_attempts INTEGER DEFAULT 0;")
+                cols.add("extract_attempts")
+            except Exception as e:
+                logger.warning(f"[TursoClient] Failed to add column 'extract_attempts': {e}")
+
     def _get_skills_extracted_columns(self) -> set[str]:
         """Inspects existing column names of skills_extracted table in Turso."""
         if not self.client:
@@ -571,8 +579,8 @@ class TursoClient:
             SELECT j.*
             FROM jobs j
             LEFT JOIN skills_extracted s ON j.id = s.job_id
-            WHERE s.job_id IS NULL
-            ORDER BY j.created_at ASC
+            WHERE s.job_id IS NULL AND (j.extract_attempts IS NULL OR j.extract_attempts < 3)
+            ORDER BY j.created_at DESC
         """
         params: List[Any] = []
         if limit is not None and limit > 0:
@@ -585,6 +593,19 @@ class TursoClient:
         except Exception as e:
             logger.warning(f"[TursoClient] Failed to get unprocessed jobs: {e}")
             return []
+
+    def increment_extract_attempts(self, job_ids: List[str]) -> None:
+        """Increments extract_attempts counter for the specified job IDs in Turso."""
+        if not self.client or not job_ids:
+            return
+        try:
+            for jid in job_ids:
+                self.client.execute(
+                    "UPDATE jobs SET extract_attempts = COALESCE(extract_attempts, 0) + 1 WHERE id = ?;",
+                    [str(jid)],
+                )
+        except Exception as e:
+            logger.warning(f"[TursoClient] Failed to increment extract_attempts: {e}")
 
     def save_extracted_skills(self, job_id: str, extracted: ExtractedJob) -> None:
         """Persists or updates structured LLM extracted skills for a job in Turso."""

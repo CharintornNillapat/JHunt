@@ -55,7 +55,8 @@ TABLE_STATEMENTS = (
         source TEXT,
         min_salary INTEGER,
         max_salary INTEGER,
-        currency TEXT DEFAULT 'THB'
+        currency TEXT DEFAULT 'THB',
+        extract_attempts INTEGER DEFAULT 0
     )
     """,
     """

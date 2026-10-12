@@ -102,7 +102,7 @@ Elevate `JHunt` from a keyword scraper and Telegram alerter into a production-gr
 - [x] **Task 0.2.1: Task 0.2 review fixes; keep the Turso URL out of logs**
 - [x] **Task 0.3: Restore CI Log Observability** (`PYTHONUNBUFFERED=1`).
 - [x] **Task 0.4: Restore Scraper Keyword Coverage** (Track `keyword_count >= limit`).
-- [ ] **Task 0.5: Prevent Ingestion Queue Starvation** (`ORDER BY created_at DESC`).
+- [x] **Task 0.5: Prevent Ingestion Queue Starvation** (`ORDER BY created_at DESC`).
 
 ---
 

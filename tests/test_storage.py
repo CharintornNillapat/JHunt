@@ -278,6 +278,47 @@ class TestDatabaseManager(unittest.TestCase):
             ["id", "title", "role", "difficulty", "domain", "tech_stack", "spec_markdown", "created_at"],
         )
 
+    def test_get_unprocessed_jobs_orders_descending(self):
+        with self.db._connection() as conn:
+            conn.execute(
+                "INSERT INTO jobs (id, title, company, url, created_at) VALUES (?, ?, ?, ?, ?)",
+                ("old_job", "Old Dev", "Old Co", "https://old.com", "2026-01-01 00:00:00"),
+            )
+            conn.execute(
+                "INSERT INTO jobs (id, title, company, url, created_at) VALUES (?, ?, ?, ?, ?)",
+                ("new_job", "New Dev", "New Co", "https://new.com", "2026-01-02 00:00:00"),
+            )
+        unprocessed = self.db.get_unprocessed_jobs()
+        self.assertEqual(len(unprocessed), 2)
+        self.assertEqual(unprocessed[0]["id"], "new_job")
+        self.assertEqual(unprocessed[1]["id"], "old_job")
+
+    def test_get_unprocessed_jobs_skips_poison_records(self):
+        with self.db._connection() as conn:
+            conn.execute(
+                "INSERT INTO jobs (id, title, company, url, extract_attempts) VALUES (?, ?, ?, ?, ?)",
+                ("poison_job", "Poison Dev", "Poison Co", "https://p.com", 3),
+            )
+            conn.execute(
+                "INSERT INTO jobs (id, title, company, url, extract_attempts) VALUES (?, ?, ?, ?, ?)",
+                ("good_job", "Good Dev", "Good Co", "https://g.com", 0),
+            )
+        unprocessed = self.db.get_unprocessed_jobs()
+        self.assertEqual(len(unprocessed), 1)
+        self.assertEqual(unprocessed[0]["id"], "good_job")
+
+    def test_increment_extract_attempts_increments_counter(self):
+        job = {"id": "job_retry", "title": "Dev", "company": "Co", "url": "https://example.com"}
+        self.db.save_job(job)
+        self.db.increment_extract_attempts(["job_retry"])
+        with self.db._connection() as conn:
+            row = conn.execute("SELECT extract_attempts FROM jobs WHERE id = ?", ("job_retry",)).fetchone()
+            self.assertEqual(row[0], 1)
+        self.db.increment_extract_attempts(["job_retry"])
+        with self.db._connection() as conn:
+            row = conn.execute("SELECT extract_attempts FROM jobs WHERE id = ?", ("job_retry",)).fetchone()
+            self.assertEqual(row[0], 2)
+
 
 class TestImportGraph(unittest.TestCase):
     def test_storage_imports_standalone(self):
@@ -856,6 +897,32 @@ class TestTursoClient(unittest.TestCase):
         projects = turso.get_generated_projects(limit=5)
         self.assertEqual(len(projects), 1)
         self.assertEqual(projects[0]["title"], "New Spec")
+
+    def test_turso_get_unprocessed_jobs_query_includes_desc_and_attempts_filter(self):
+        mock_client = MagicMock()
+        mock_rs = MagicMock()
+        mock_rs.columns = ["id", "title", "company", "created_at", "extract_attempts"]
+        mock_rs.rows = []
+        mock_client.execute.return_value = mock_rs
+
+        turso = TursoClient(client=mock_client)
+        turso.get_unprocessed_jobs()
+
+        mock_client.execute.assert_called()
+        executed_sql = mock_client.execute.call_args[0][0]
+        self.assertIn("ORDER BY j.created_at DESC", executed_sql)
+        self.assertIn("(j.extract_attempts IS NULL OR j.extract_attempts < 3)", executed_sql)
+
+    def test_turso_increment_extract_attempts(self):
+        mock_client = MagicMock()
+        turso = TursoClient(client=mock_client)
+        mock_client.execute.reset_mock()
+        turso.increment_extract_attempts(["job_1", "job_2"])
+
+        self.assertEqual(mock_client.execute.call_count, 2)
+        first_call = mock_client.execute.call_args_list[0]
+        self.assertIn("UPDATE jobs SET extract_attempts = COALESCE(extract_attempts, 0) + 1 WHERE id = ?", first_call[0][0])
+        self.assertEqual(first_call[0][1], ["job_1"])
 
 
 class TestStorageFactory(unittest.TestCase):

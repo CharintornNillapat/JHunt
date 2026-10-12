@@ -544,7 +544,10 @@ class TestBatchQueueProcessing(unittest.TestCase):
 
     def test_unanswered_jobs_stay_queued(self):
         self._seed([_job(0), _job(1)])
-        self.extractor.extract_batch.side_effect = lambda batch: self._answer_all(batch[:1])
+        self.extractor.extract_batch.side_effect = lambda batch: {
+            j["id"]: ExtractedJob(job_title=j["title"], company=j["company"], must_have_skills=["Python"])
+            for j in batch if j["id"] == "job_000"
+        }
 
         processed = process_unprocessed_jobs(db=self.db, extractor=self.extractor)
 
@@ -591,6 +594,31 @@ class TestBatchQueueProcessing(unittest.TestCase):
 
         turso.sync_extracted_skills.assert_called_once()
         self.assertEqual(len(turso.sync_extracted_skills.call_args[0][0]), 2)
+
+    def test_unexpected_batch_failure_increments_extract_attempts(self):
+        self._seed([_job(0), _job(1)])
+        self.extractor.extract_batch.side_effect = RuntimeError("Malformed LLM JSON")
+        mock_storage = MagicMock()
+        mock_storage.get_unprocessed_jobs.return_value = [_job(0), _job(1)]
+
+        processed = process_unprocessed_jobs(storage=mock_storage, extractor=self.extractor)
+
+        self.assertEqual(processed, 0)
+        mock_storage.increment_extract_attempts.assert_called_once_with(["job_000", "job_001"])
+
+    def test_unanswered_jobs_in_batch_increment_extract_attempts(self):
+        jobs = [_job(0), _job(1)]
+        self._seed(jobs)
+        self.extractor.extract_batch.return_value = {
+            "job_000": ExtractedJob(job_title="Job 0", company="Co 0", must_have_skills=["Python"])
+        }
+        mock_storage = MagicMock()
+        mock_storage.get_unprocessed_jobs.return_value = jobs
+
+        processed = process_unprocessed_jobs(storage=mock_storage, extractor=self.extractor)
+
+        self.assertEqual(processed, 1)
+        mock_storage.increment_extract_attempts.assert_called_once_with(["job_001"])
 
 
 if __name__ == "__main__":

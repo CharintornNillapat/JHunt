@@ -80,6 +80,8 @@ class DatabaseManager:
                     conn.execute("ALTER TABLE jobs ADD COLUMN max_salary INTEGER")
                 if "currency" not in jobs_cols:
                     conn.execute("ALTER TABLE jobs ADD COLUMN currency TEXT DEFAULT 'THB'")
+                if "extract_attempts" not in jobs_cols:
+                    conn.execute("ALTER TABLE jobs ADD COLUMN extract_attempts INTEGER DEFAULT 0")
 
             skills_cols = {row["name"] for row in conn.execute("PRAGMA table_info(skills_extracted)")}
             if skills_cols:
@@ -214,8 +216,8 @@ class DatabaseManager:
             SELECT j.*
             FROM jobs j
             LEFT JOIN skills_extracted s ON j.id = s.job_id
-            WHERE s.job_id IS NULL
-            ORDER BY j.created_at ASC
+            WHERE s.job_id IS NULL AND (j.extract_attempts IS NULL OR j.extract_attempts < 3)
+            ORDER BY j.created_at DESC
         """
         params: Tuple[Any, ...] = ()
         if limit is not None and limit > 0:
@@ -227,6 +229,17 @@ class DatabaseManager:
             cursor.execute(query, params)
             rows = cursor.fetchall()
             return [self._row_to_job(row) for row in rows]
+
+    def increment_extract_attempts(self, job_ids: List[str]) -> None:
+        """Increments extract_attempts counter for the specified job IDs."""
+        if not job_ids:
+            return
+        with self._connection() as conn:
+            cursor = conn.cursor()
+            cursor.executemany(
+                "UPDATE jobs SET extract_attempts = COALESCE(extract_attempts, 0) + 1 WHERE id = ?",
+                [(str(jid),) for jid in job_ids],
+            )
 
     @staticmethod
     def _row_to_job(row: sqlite3.Row) -> Dict[str, Any]:
