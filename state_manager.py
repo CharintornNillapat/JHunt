@@ -60,7 +60,19 @@ class StateManager:
         if "seen" in data:
             seen = data.get("seen") or {}
             if isinstance(seen, dict):
-                return {str(k): v for k, v in seen.items()}
+                result: dict[str, str | None] = {}
+                for k, v in seen.items():
+                    k_str = str(k)
+                    canonical_id = f"jobsdb_{k_str}" if (k_str.isascii() and k_str.isdigit()) else k_str
+                    if canonical_id in result:
+                        existing_v = result[canonical_id]
+                        if existing_v is None:
+                            result[canonical_id] = v
+                        elif v is not None:
+                            result[canonical_id] = max(existing_v, v)
+                    else:
+                        result[canonical_id] = v
+                return result
             print("[StateManager] Warning: unexpected 'seen' shape, starting fresh.")
             return {}
 
@@ -70,7 +82,12 @@ class StateManager:
         if legacy_ids:
             today = date.today().isoformat()
             print(f"[StateManager] Migrating {len(legacy_ids)} ID(s) from v1 state schema.")
-            return {str(job_id): today for job_id in legacy_ids}
+            result = {}
+            for job_id in legacy_ids:
+                id_str = str(job_id)
+                canonical_id = f"jobsdb_{id_str}" if (id_str.isascii() and id_str.isdigit()) else id_str
+                result[canonical_id] = today
+            return result
 
         return {}
 
