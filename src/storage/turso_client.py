@@ -607,6 +607,59 @@ class TursoClient:
         except Exception as e:
             logger.warning(f"[TursoClient] Failed to increment extract_attempts: {e}")
 
+    def get_unparsed_salary_jobs(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
+        """
+        Retrieves jobs from Turso `jobs` table that have not had salary parsed
+        (both min_salary and max_salary are NULL) and have raw salary or raw_content text.
+        Returns a list of standardized job dicts.
+        """
+        if not self.client:
+            return []
+        query = """
+            SELECT j.id, j.salary, j.raw_content
+            FROM jobs j
+            WHERE j.min_salary IS NULL AND j.max_salary IS NULL
+              AND (
+                (j.salary IS NOT NULL AND trim(j.salary) != '')
+                OR (j.raw_content IS NOT NULL AND trim(j.raw_content) != '')
+              )
+            ORDER BY j.created_at DESC
+        """
+        params: List[Any] = []
+        if limit is not None and limit > 0:
+            query += " LIMIT ?"
+            params = [limit]
+
+        try:
+            rs = self.client.execute(query, params)
+            return [self._row_to_job(rs.columns, row) for row in rs.rows]
+        except Exception as e:
+            logger.warning(f"[TursoClient] Failed to get unparsed salary jobs: {e}")
+            return []
+
+    def update_job_salaries_batch(self, updates: List[Dict[str, Any]]) -> int:
+        """
+        Batch updates min_salary, max_salary, and currency for existing jobs in Turso.
+        Returns the number of updated statements executed.
+        """
+        if not self.client or not updates:
+            return 0
+        stmts = []
+        for u in updates:
+            job_id = str(u.get("id") or u.get("job_id") or "").strip()
+            if not job_id:
+                continue
+            stmts.append((
+                "UPDATE jobs SET min_salary = ?, max_salary = ?, currency = ? WHERE id = ?",
+                [
+                    u.get("min_salary"),
+                    u.get("max_salary"),
+                    str(u.get("currency") or "THB").strip(),
+                    job_id,
+                ],
+            ))
+        return self._run_batch(stmts, "jobs")
+
     def save_extracted_skills(self, job_id: str, extracted: ExtractedJob) -> None:
         """Persists or updates structured LLM extracted skills for a job in Turso."""
         self.sync_extracted_skills([{"job_id": job_id, "extracted": extracted}])

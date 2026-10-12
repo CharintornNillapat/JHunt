@@ -391,6 +391,32 @@ def run_full_pipeline(
     return results
 
 
+def run_backfill_pipeline(limit: Optional[int] = None, dry_run: bool = True) -> Dict[str, Any]:
+    """Runs deterministic salary backfill pipeline across existing job postings."""
+    from src.extractor.salary_backfill import backfill_salaries
+
+    storage = get_storage()
+    try:
+        results = backfill_salaries(storage=storage, limit=limit, dry_run=dry_run)
+        storage_type = type(storage).__name__
+
+        print("\n" + "=" * 50)
+        print("SALARY BACKFILL REPORT")
+        print("=" * 50)
+        print(f"Mode:              {'DRY RUN (preview only)' if dry_run else 'APPLIED TO DATABASE'}")
+        print(f"Storage Engine:    {storage_type}")
+        print(f"Candidates Found:  {results['total_candidates']}")
+        print(f"Newly Parsed:      {results['parsed_count']}")
+        print(f"Rows Updated:      {results['applied_count']}")
+        print(f"Currencies:        {results['currencies']}")
+        print("=" * 50 + "\n")
+
+        return results
+    finally:
+        if hasattr(storage, "close"):
+            storage.close()
+
+
 # ── CLI Interface ─────────────────────────────────────────────────────────────
 
 
@@ -426,6 +452,32 @@ def build_parser() -> argparse.ArgumentParser:
     analyze_parser.add_argument("--role", type=str, default="Backend Engineer", help="Role for project blueprint")
     analyze_parser.add_argument("--limit", type=int, default=None, help="Limit jobs for extraction queue")
 
+    # backfill-salaries subcommand
+    backfill_parser = subparsers.add_parser(
+        "backfill-salaries",
+        help="Backfill historical job posting salaries using deterministic parser",
+    )
+    backfill_group = backfill_parser.add_mutually_exclusive_group()
+    backfill_group.add_argument(
+        "--dry-run",
+        action="store_true",
+        dest="dry_run",
+        default=True,
+        help="Preview changes without modifying storage (default)",
+    )
+    backfill_group.add_argument(
+        "--apply",
+        action="store_false",
+        dest="dry_run",
+        help="Apply updates to database",
+    )
+    backfill_parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Limit number of candidate jobs to process",
+    )
+
     return parser
 
 
@@ -453,6 +505,12 @@ def main(argv: Optional[List[str]] = None) -> int:
             role = getattr(args, "role", "Backend Engineer")
             limit = getattr(args, "limit", None)
             run_analyze_pipeline(config=config, target_role=role, limit=limit)
+            return 0
+
+        elif args.command == "backfill-salaries":
+            limit = getattr(args, "limit", None)
+            dry_run = getattr(args, "dry_run", True)
+            run_backfill_pipeline(limit=limit, dry_run=dry_run)
             return 0
 
         else:

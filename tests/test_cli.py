@@ -15,6 +15,7 @@ from main import (
     main,
     run_alert_pipeline,
     run_analyze_pipeline,
+    run_backfill_pipeline,
     run_full_pipeline,
 )
 from src.extractor.schemas import ExtractedJob, ProjectIdeaSpec
@@ -53,6 +54,20 @@ class TestCLIParsing(unittest.TestCase):
         self.assertEqual(args.role, "Data Engineer / Data Analyst")
         self.assertEqual(args.limit, 20)
 
+    def test_backfill_salaries_subcommand_args(self):
+        args = self.parser.parse_args(["backfill-salaries"])
+        self.assertEqual(args.command, "backfill-salaries")
+        self.assertTrue(args.dry_run)
+        self.assertIsNone(args.limit)
+
+        args_apply = self.parser.parse_args(["backfill-salaries", "--apply", "--limit", "30"])
+        self.assertEqual(args_apply.command, "backfill-salaries")
+        self.assertFalse(args_apply.dry_run)
+        self.assertEqual(args_apply.limit, 30)
+
+        args_dry = self.parser.parse_args(["backfill-salaries", "--dry-run"])
+        self.assertTrue(args_dry.dry_run)
+
 
 class TestSubcommandRouting(unittest.TestCase):
     @patch("main.run_full_pipeline")
@@ -75,6 +90,13 @@ class TestSubcommandRouting(unittest.TestCase):
         code = main(["analyze", "--role", "DevOps / Cloud / Platform Engineer"])
         self.assertEqual(code, 0)
         mock_analyze.assert_called_once()
+
+    @patch("main.run_backfill_pipeline")
+    def test_main_routes_backfill_salaries(self, mock_backfill):
+        mock_backfill.return_value = {"total_candidates": 0}
+        code = main(["backfill-salaries", "--apply", "--limit", "50"])
+        self.assertEqual(code, 0)
+        mock_backfill.assert_called_once_with(limit=50, dry_run=False)
 
     @patch("main.get_active_scrapers")
     def test_run_scrapers_configures_per_adapter_limits(self, mock_get_scrapers):
@@ -203,6 +225,125 @@ class TestPipelineOrchestration(unittest.TestCase):
         self.assertEqual(results["alerted"], 1)
         self.assertIsNotNone(results["exported_spec"])
         mock_notifier.send_market_brief.assert_called_once()
+
+    @patch("main.get_storage")
+    def test_backfill_salaries_dry_run_leaves_db_unchanged(self, mock_get_storage):
+        mock_get_storage.return_value = self.db
+
+        with self.db._connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO jobs (id, title, company, url, salary, min_salary, max_salary, currency)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                ("bf_job_1", "Backend Dev", "Co 1", "https://example.com/bf1", "50,000 THB", None, None, "THB"),
+            )
+
+        res = run_backfill_pipeline(limit=10, dry_run=True)
+        self.assertEqual(res["total_candidates"], 1)
+        self.assertEqual(res["parsed_count"], 1)
+        self.assertEqual(res["applied_count"], 0)
+
+        with self.db._connection() as conn:
+            row = conn.execute("SELECT min_salary, max_salary FROM jobs WHERE id = 'bf_job_1'").fetchone()
+            self.assertIsNone(row["min_salary"])
+            self.assertIsNone(row["max_salary"])
+
+    @patch("main.get_storage")
+    def test_backfill_salaries_apply_persists_parsed_values(self, mock_get_storage):
+        mock_get_storage.return_value = self.db
+
+        with self.db._connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO jobs (id, title, company, url, salary, min_salary, max_salary, currency)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                ("bf_job_2", "Backend Dev", "Co 2", "https://example.com/bf2", "50,000 - 70,000 THB", None, None, "THB"),
+            )
+            conn.execute(
+                """
+                INSERT INTO jobs (id, title, company, url, salary, raw_content, min_salary, max_salary, currency)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                ("bf_job_3", "Data Eng", "Co 3", "https://example.com/bf3", "", '{"description": "salary 45k - 60k THB"}', None, None, "THB"),
+            )
+
+        res = run_backfill_pipeline(limit=10, dry_run=False)
+        self.assertEqual(res["total_candidates"], 2)
+        self.assertEqual(res["parsed_count"], 2)
+        self.assertEqual(res["applied_count"], 2)
+        self.assertEqual(res["currencies"].get("THB"), 2)
+
+        with self.db._connection() as conn:
+            row2 = conn.execute("SELECT min_salary, max_salary, currency FROM jobs WHERE id = 'bf_job_2'").fetchone()
+            self.assertEqual(row2["min_salary"], 50000)
+            self.assertEqual(row2["max_salary"], 70000)
+            self.assertEqual(row2["currency"], "THB")
+
+            row3 = conn.execute("SELECT min_salary, max_salary, currency FROM jobs WHERE id = 'bf_job_3'").fetchone()
+            self.assertEqual(row3["min_salary"], 45000)
+            self.assertEqual(row3["max_salary"], 60000)
+
+    @patch("scripts.backfill_salaries.get_storage")
+    def test_standalone_script_backfill_salaries(self, mock_get_storage):
+        mock_get_storage.return_value = self.db
+        import scripts.backfill_salaries as script_module
+
+        with self.db._connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO jobs (id, title, company, url, salary, min_salary, max_salary, currency)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                ("bf_job_script", "Backend Dev", "Co S", "https://example.com/bfs", "60,000 THB", None, None, "THB"),
+            )
+
+        exit_code = script_module.main(["--dry-run", "--limit", "5"])
+        self.assertEqual(exit_code, 0)
+        with self.db._connection() as conn:
+            row = conn.execute("SELECT min_salary FROM jobs WHERE id = 'bf_job_script'").fetchone()
+            self.assertIsNone(row["min_salary"])
+
+        exit_code_apply = script_module.main(["--apply", "--limit", "5"])
+        self.assertEqual(exit_code_apply, 0)
+        with self.db._connection() as conn:
+            row = conn.execute("SELECT min_salary, max_salary FROM jobs WHERE id = 'bf_job_script'").fetchone()
+            self.assertEqual(row["min_salary"], 60000)
+            self.assertEqual(row["max_salary"], 60000)
+
+    @patch("main.get_storage")
+    def test_run_backfill_pipeline_closes_storage_in_finally(self, mock_get_storage):
+        mock_storage = MagicMock()
+        mock_storage.get_unparsed_salary_jobs.return_value = []
+        mock_get_storage.return_value = mock_storage
+
+        run_backfill_pipeline(limit=5, dry_run=True)
+        mock_storage.close.assert_called_once()
+
+        # Verify close called even when error raised
+        mock_storage.reset_mock()
+        mock_storage.get_unparsed_salary_jobs.side_effect = RuntimeError("db error")
+        with self.assertRaises(RuntimeError):
+            run_backfill_pipeline(limit=5, dry_run=True)
+        mock_storage.close.assert_called_once()
+
+    @patch("scripts.backfill_salaries.get_storage")
+    def test_scripts_backfill_salaries_closes_storage_in_finally(self, mock_get_storage):
+        mock_storage = MagicMock()
+        mock_storage.get_unparsed_salary_jobs.return_value = []
+        mock_get_storage.return_value = mock_storage
+        import scripts.backfill_salaries as script_module
+
+        script_module.main(["--dry-run"])
+        mock_storage.close.assert_called_once()
+
+        # Verify close called even when error raised
+        mock_storage.reset_mock()
+        mock_storage.get_unparsed_salary_jobs.side_effect = RuntimeError("db error")
+        with self.assertRaises(RuntimeError):
+            script_module.main(["--dry-run"])
+        mock_storage.close.assert_called_once()
 
 
 class TestTelegramMarketBrief(unittest.TestCase):

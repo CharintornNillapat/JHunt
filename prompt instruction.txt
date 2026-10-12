@@ -1,0 +1,12 @@
+Session A:
+Read CLAUDE.md, then act ONLY as the plan + review agent.
+Allowed writes: workflow/stages/01_spec/output/,
+workflow/stages/03_review/output/. Never edit source code.
+For review: follow workflow/stages/03_review/CONTEXT.md,
+read only the spec and git diff for the task I name.
+
+Session B:
+Read CLAUDE.md, then act ONLY as the build agent.
+Follow workflow/stages/02_build/CONTEXT.md.
+Allowed writes: source code + workflow/stages/02_build/output/.
+If a review.md exists for the task, fix only what it lists.

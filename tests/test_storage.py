@@ -319,6 +319,66 @@ class TestDatabaseManager(unittest.TestCase):
             row = conn.execute("SELECT extract_attempts FROM jobs WHERE id = ?", ("job_retry",)).fetchone()
             self.assertEqual(row[0], 2)
 
+    def test_get_unparsed_salary_jobs(self):
+        with self.db._connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO jobs (id, title, company, url, salary, min_salary, max_salary, currency)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                ("unparsed_job_1", "Backend Dev", "Acme", "https://example.com/1", "30,000 - 50,000 THB", None, None, "THB"),
+            )
+            conn.execute(
+                """
+                INSERT INTO jobs (id, title, company, url, salary, min_salary, max_salary, currency)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                ("parsed_job_1", "Senior Dev", "Acme", "https://example.com/2", "80,000 THB", 80000, 80000, "THB"),
+            )
+            conn.execute(
+                """
+                INSERT INTO jobs (id, title, company, url, salary, raw_content, min_salary, max_salary, currency)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                ("unparsed_job_2", "Data Dev", "Beta", "https://example.com/3", "", '{"description": "เงินเดือน 45,000 บาท"}', None, None, "THB"),
+            )
+
+        unparsed = self.db.get_unparsed_salary_jobs()
+        unparsed_ids = [j["id"] for j in unparsed]
+        self.assertIn("unparsed_job_1", unparsed_ids)
+        self.assertIn("unparsed_job_2", unparsed_ids)
+        self.assertNotIn("parsed_job_1", unparsed_ids)
+
+        limited = self.db.get_unparsed_salary_jobs(limit=1)
+        self.assertEqual(len(limited), 1)
+
+    def test_update_job_salaries_batch(self):
+        with self.db._connection() as conn:
+            conn.execute(
+                "INSERT INTO jobs (id, title, company, url, salary) VALUES (?, ?, ?, ?, ?)",
+                ("job_up_1", "Dev 1", "Co 1", "https://example.com/1", "30k"),
+            )
+            conn.execute(
+                "INSERT INTO jobs (id, title, company, url, salary) VALUES (?, ?, ?, ?, ?)",
+                ("job_up_2", "Dev 2", "Co 2", "https://example.com/2", "50k"),
+            )
+
+        updates = [
+            {"id": "job_up_1", "min_salary": 30000, "max_salary": 30000, "currency": "THB"},
+            {"id": "job_up_2", "min_salary": 50000, "max_salary": 60000, "currency": "THB"},
+        ]
+        count = self.db.update_job_salaries_batch(updates)
+        self.assertEqual(count, 2)
+
+        with self.db._connection() as conn:
+            r1 = conn.execute("SELECT min_salary, max_salary, currency FROM jobs WHERE id = 'job_up_1'").fetchone()
+            self.assertEqual(r1["min_salary"], 30000)
+            self.assertEqual(r1["max_salary"], 30000)
+            self.assertEqual(r1["currency"], "THB")
+            r2 = conn.execute("SELECT min_salary, max_salary, currency FROM jobs WHERE id = 'job_up_2'").fetchone()
+            self.assertEqual(r2["min_salary"], 50000)
+            self.assertEqual(r2["max_salary"], 60000)
+
 
 class TestImportGraph(unittest.TestCase):
     def test_storage_imports_standalone(self):
@@ -923,6 +983,49 @@ class TestTursoClient(unittest.TestCase):
         first_call = mock_client.execute.call_args_list[0]
         self.assertIn("UPDATE jobs SET extract_attempts = COALESCE(extract_attempts, 0) + 1 WHERE id = ?", first_call[0][0])
         self.assertEqual(first_call[0][1], ["job_1"])
+
+    def test_turso_get_unparsed_salary_jobs_with_mock(self):
+        mock_client = MagicMock()
+        turso = TursoClient(client=mock_client)
+        mock_client.execute.reset_mock()
+
+        class MockResult:
+            columns = ("id", "salary", "raw_content")
+            rows = [
+                ("t_j1", "40,000 THB", '{"description": "Junior Dev"}'),
+            ]
+
+        mock_client.execute.return_value = MockResult()
+        jobs = turso.get_unparsed_salary_jobs(limit=5)
+        self.assertEqual(len(jobs), 1)
+        self.assertEqual(jobs[0]["id"], "t_j1")
+        self.assertEqual(jobs[0]["salary"], "40,000 THB")
+        self.assertEqual(jobs[0]["description"], "Junior Dev")
+
+        mock_client.execute.assert_called_once()
+        sql, params = mock_client.execute.call_args[0]
+        self.assertIn("min_salary IS NULL AND j.max_salary IS NULL", sql)
+        self.assertEqual(params, [5])
+
+    def test_turso_update_job_salaries_batch_mock(self):
+        mock_client = MagicMock()
+        turso = TursoClient(client=mock_client)
+        mock_client.batch.reset_mock()
+
+        updates = [
+            {"id": "t_j1", "min_salary": 40000, "max_salary": 50000, "currency": "THB"},
+            {"id": "t_j2", "min_salary": 60000, "max_salary": 80000, "currency": "USD"},
+        ]
+        synced = turso.update_job_salaries_batch(updates)
+        self.assertEqual(synced, 2)
+        mock_client.batch.assert_called_once()
+
+        stmts = mock_client.batch.call_args[0][0]
+        self.assertEqual(len(stmts), 2)
+        sql, params = stmts[0]
+        self.assertIn("UPDATE jobs SET min_salary = ?, max_salary = ?, currency = ? WHERE id = ?", sql)
+        self.assertEqual(params, [40000, 50000, "THB", "t_j1"])
+        self.assertEqual(stmts[1][1], [60000, 80000, "USD", "t_j2"])
 
 
 class TestStorageFactory(unittest.TestCase):

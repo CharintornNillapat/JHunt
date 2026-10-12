@@ -241,6 +241,65 @@ class DatabaseManager:
                 [(str(jid),) for jid in job_ids],
             )
 
+    def get_unparsed_salary_jobs(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
+        """
+        Retrieves jobs from `jobs` table that have not had salary parsed (both min_salary and max_salary are NULL),
+        and have raw salary or raw_content text available.
+        Returns a list of standardized job dicts.
+        """
+        query = """
+            SELECT j.id, j.salary, j.raw_content
+            FROM jobs j
+            WHERE j.min_salary IS NULL AND j.max_salary IS NULL
+              AND (
+                (j.salary IS NOT NULL AND trim(j.salary) != '')
+                OR (j.raw_content IS NOT NULL AND trim(j.raw_content) != '')
+              )
+            ORDER BY j.created_at DESC
+        """
+        params: Tuple[Any, ...] = ()
+        if limit is not None and limit > 0:
+            query += " LIMIT ?"
+            params = (limit,)
+
+        with self._connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+            return [self._row_to_job(row) for row in rows]
+
+    def update_job_salaries_batch(self, updates: List[Dict[str, Any]]) -> int:
+        """
+        Batch updates min_salary, max_salary, and currency for existing jobs.
+        Returns the number of updated records.
+        """
+        if not updates:
+            return 0
+        params = []
+        for u in updates:
+            job_id = str(u.get("id") or u.get("job_id") or "").strip()
+            if not job_id:
+                continue
+            params.append((
+                u.get("min_salary"),
+                u.get("max_salary"),
+                str(u.get("currency") or "THB").strip(),
+                job_id,
+            ))
+        if not params:
+            return 0
+        with self._connection() as conn:
+            cursor = conn.cursor()
+            cursor.executemany(
+                """
+                UPDATE jobs
+                SET min_salary = ?, max_salary = ?, currency = ?
+                WHERE id = ?;
+                """,
+                params,
+            )
+            return cursor.rowcount if cursor.rowcount >= 0 else len(params)
+
     @staticmethod
     def _row_to_job(row: sqlite3.Row) -> Dict[str, Any]:
         """Converts a database row into a standardized job dict."""
