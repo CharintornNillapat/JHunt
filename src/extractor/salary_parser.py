@@ -14,6 +14,14 @@ from typing import Any, Dict, Optional, Tuple, Union
 RE_EN_DASH = re.compile(r"[\u2013\u2014\u2212]")
 RE_PHONE = re.compile(r"\b0\d{1,2}[-\s]?\d{3,4}[-\s]?\d{4}\b")
 RE_POSTAL_CONTEXT = re.compile(r"(?i)(?:postal\s*code|postcode|zip\s*code|รหัสไปรษณีย์|แขวง|เขต|จ\.)\s*[:\s]*\d{5}\b")
+RE_SALARY_ANCHOR = re.compile(
+    r"(?i)(?:salary|เงินเดือน|ค่าตอบแทน|compensation|remuneration|รายได้|ค่าจ้าง|base\s*salary|offer)(?:\s*\([^)]*\))?\s*[:=\-\s]\s*",
+    re.UNICODE,
+)
+RE_COUNT_NOUN = re.compile(
+    r"(?i)^\s*(?:merchants?|users?|people|engineers?|customers?|clients?|members?|accounts?|คน|ร้านค้า|ท่าน)(?:\b|\s|$)",
+    re.UNICODE,
+)
 
 # Normalization constants
 HOURLY_HOURS_PER_MONTH = 160  # 40 hrs/wk * 4 weeks
@@ -61,9 +69,24 @@ def _detect_period(text: str) -> str:
         return "hourly"
     if re.search(r"(?:/\s*day|per\s+day|ต่อ\s*วัน)", lower):
         return "daily"
-    if re.search(r"(?:/\s*(?:year|yr|annum)|per\s+(?:year|annum)|ต่อ\s*ปี)", lower):
+    if re.search(r"(?:/\s*(?:year|yr|annum)|per\s+(?:year|annum)|ต่อ\s*ปี|annually|yearly)", lower):
         return "yearly"
     return "monthly"
+
+
+def _get_local_context(norm: str, match_start: int, match_end: int) -> str:
+    """Extracts narrow surrounding window around a match, bounded by sentence delimiters."""
+    prefix = norm[max(0, match_start - 25) : match_start]
+    delim_idx = max(prefix.rfind("."), prefix.rfind(";"), prefix.rfind("\n"))
+    if delim_idx != -1:
+        prefix = prefix[delim_idx + 1 :]
+
+    suffix = norm[match_end : min(len(norm), match_end + 35)]
+    delim_match = re.search(r"[.;\n]|\s{2,}", suffix)
+    if delim_match:
+        suffix = suffix[: delim_match.start()]
+
+    return prefix + norm[match_start:match_end] + suffix
 
 
 def _parse_number_token(token: str, context_has_k: bool = False) -> Optional[int]:
@@ -180,9 +203,6 @@ def _extract_from_text(text: str) -> Tuple[Optional[int], Optional[int], str]:
     if lower in ("negotiable", "ตามตกลง", "not specified", "unspecified", "ตามโครงสร้างบริษัท", "competitive", "none", "n/a"):
         return None, None, "THB"
 
-    currency = _detect_currency(norm)
-    period = _detect_period(norm)
-
     # 1. Range Pattern: e.g. 50,000 - 80,000, 30k - 50k, 30 - 50k, ฿23,000 - ฿25,000
     range_regex = re.compile(
         r"(?:฿|THB|\$)?\s*"
@@ -193,12 +213,20 @@ def _extract_from_text(text: str) -> Tuple[Optional[int], Optional[int], str]:
         re.IGNORECASE,
     )
     for match in range_regex.finditer(norm):
+        trailing = norm[match.end() : match.end() + 35]
+        if RE_COUNT_NOUN.search(trailing):
+            continue
+
         num1_str = match.group(1).strip()
         num2_str = match.group(2).strip()
 
         # Reject phone numbers (e.g. 081-1234567 or 02-1234567)
         if num1_str.startswith("0") and not num1_str.lower().endswith(("k", "m")):
             continue
+
+        local_ctx = _get_local_context(norm, match.start(), match.end())
+        curr = _detect_currency(local_ctx)
+        period = _detect_period(local_ctx)
 
         has_k = num2_str.lower().endswith("k") or "k" in norm[match.start():match.end()].lower()
         val1 = _parse_number_token(num1_str, context_has_k=has_k)
@@ -210,8 +238,8 @@ def _extract_from_text(text: str) -> Tuple[Optional[int], Optional[int], str]:
         if val1 is not None and val2 is not None:
             if val1 > val2:
                 val1, val2 = val2, val1
-            if _is_realistic(val1, currency) and _is_realistic(val2, currency):
-                return val1, val2, currency
+            if _is_realistic(val1, curr) and _is_realistic(val2, curr):
+                return val1, val2, curr
 
     # 2. Up to / Max Only Pattern: e.g. Up to 120,000, สูงสุด 120,000, <= 100k
     max_regex = re.compile(
@@ -221,11 +249,19 @@ def _extract_from_text(text: str) -> Tuple[Optional[int], Optional[int], str]:
         re.IGNORECASE,
     )
     for match in max_regex.finditer(norm):
+        trailing = norm[match.end() : match.end() + 35]
+        if RE_COUNT_NOUN.search(trailing):
+            continue
+
+        local_ctx = _get_local_context(norm, match.start(), match.end())
+        curr = _detect_currency(local_ctx)
+        period = _detect_period(local_ctx)
+
         max_str = match.group(1).strip()
         max_val = _parse_number_token(max_str)
         max_val = _apply_period_multiplier(max_val, period)
-        if max_val is not None and _is_realistic(max_val, currency):
-            return None, max_val, currency
+        if max_val is not None and _is_realistic(max_val, curr):
+            return None, max_val, curr
 
     # 3. From / Min Only Pattern: e.g. From 40,000, เริ่มต้น 40,000
     min_regex = re.compile(
@@ -235,11 +271,19 @@ def _extract_from_text(text: str) -> Tuple[Optional[int], Optional[int], str]:
         re.IGNORECASE,
     )
     for match in min_regex.finditer(norm):
+        trailing = norm[match.end() : match.end() + 35]
+        if RE_COUNT_NOUN.search(trailing):
+            continue
+
+        local_ctx = _get_local_context(norm, match.start(), match.end())
+        curr = _detect_currency(local_ctx)
+        period = _detect_period(local_ctx)
+
         min_str = match.group(1).strip()
         min_val = _parse_number_token(min_str)
         min_val = _apply_period_multiplier(min_val, period)
-        if min_val is not None and _is_realistic(min_val, currency):
-            return min_val, None, currency
+        if min_val is not None and _is_realistic(min_val, curr):
+            return min_val, None, curr
 
     # Suffix + pattern: e.g. 40,000+, 40k+
     suffix_plus_regex = re.compile(
@@ -248,11 +292,19 @@ def _extract_from_text(text: str) -> Tuple[Optional[int], Optional[int], str]:
         re.IGNORECASE,
     )
     for match in suffix_plus_regex.finditer(norm):
+        trailing = norm[match.end() : match.end() + 35]
+        if RE_COUNT_NOUN.search(trailing):
+            continue
+
+        local_ctx = _get_local_context(norm, match.start(), match.end())
+        curr = _detect_currency(local_ctx)
+        period = _detect_period(local_ctx)
+
         min_str = match.group(1).strip()
         min_val = _parse_number_token(min_str)
         min_val = _apply_period_multiplier(min_val, period)
-        if min_val is not None and _is_realistic(min_val, currency):
-            return min_val, None, currency
+        if min_val is not None and _is_realistic(min_val, curr):
+            return min_val, None, curr
 
     # 4. Single explicit salary with currency/period indicator (e.g. 60,000 THB / month, 500 THB/hr)
     single_regex = re.compile(
@@ -263,13 +315,21 @@ def _extract_from_text(text: str) -> Tuple[Optional[int], Optional[int], str]:
         re.IGNORECASE,
     )
     for match in single_regex.finditer(norm):
+        trailing = norm[match.end() : match.end() + 35]
+        if RE_COUNT_NOUN.search(trailing):
+            continue
+
+        local_ctx = _get_local_context(norm, match.start(), match.end())
+        curr = _detect_currency(local_ctx)
+        period = _detect_period(local_ctx)
+
         val_str = match.group(1).strip()
         val = _parse_number_token(val_str)
         val = _apply_period_multiplier(val, period)
-        if val is not None and _is_realistic(val, currency):
-            return val, val, currency
+        if val is not None and _is_realistic(val, curr):
+            return val, val, curr
 
-    return None, None, currency
+    return None, None, "THB"
 
 
 def parse_salary(
@@ -296,8 +356,10 @@ def parse_salary(
 
     # 2. Inspect description for compensation patterns if header was undisclosed
     if description and isinstance(description, str):
-        min_s, max_s, curr = _extract_from_text(description)
-        if min_s is not None or max_s is not None:
-            return min_s, max_s, curr
+        for anchor_match in RE_SALARY_ANCHOR.finditer(description):
+            window = description[anchor_match.start() : anchor_match.end() + 150]
+            min_s, max_s, curr = _extract_from_text(window)
+            if min_s is not None or max_s is not None:
+                return min_s, max_s, curr
 
     return None, None, "THB"

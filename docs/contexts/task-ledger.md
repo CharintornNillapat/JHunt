@@ -104,6 +104,13 @@ Elevate `JHunt` from a keyword scraper and Telegram alerter into a production-gr
 - [x] **Task 0.4: Restore Scraper Keyword Coverage** (Track `keyword_count >= limit`).
 - [x] **Task 0.5: Prevent Ingestion Queue Starvation** (`ORDER BY created_at DESC`).
 
+#### Phase 1: Reliability, Data Quality & LLM Pipeline (P1)
+- [x] **Task 1.1: Salary Parser Precision & Noise Rejection** (Keyword window + local currency/period).
+- [ ] **Task 1.2: Historical Salary Backfill** (Parse existing Turso rows).
+- [ ] **Task 1.3: Structural Error Classification** (Stop retrying Pydantic errors on 500/1500).
+- [ ] **Task 1.4: Schema & Index Reconciliation** (Align role index on generated_projects).
+- [ ] **Task 1.5: Blueprint Logic & Exporter Fixes** (Interleaving tests, strip '..').
+
 ---
 
 ## 3. Operational Guardrails Log

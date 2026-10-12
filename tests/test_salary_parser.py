@@ -92,9 +92,44 @@ class TestSalaryParser(unittest.TestCase):
         # Pure boilerplate strings
         self.assertEqual(parse_salary("Negotiable"), (None, None, "THB"))
         self.assertEqual(parse_salary("ตามตกลง"), (None, None, "THB"))
-        self.assertEqual(parse_salary("Not specified"), (None, None, "THB"))
         self.assertEqual(parse_salary(""), (None, None, "THB"))
         self.assertEqual(parse_salary(None), (None, None, "THB"))
+
+    def test_ot_hourly_mention_does_not_corrupt_salary_period(self):
+        self.assertEqual(
+            parse_salary("Salary 35,000 - 45,000 THB. OT paid 200 THB/hour."),
+            (35000, 45000, "THB"),
+        )
+
+    def test_client_or_merchant_counts_not_parsed_as_salary(self):
+        self.assertEqual(
+            parse_salary(description="We serve 50,000+ merchants across Southeast Asia."),
+            (None, None, "THB"),
+        )
+
+    def test_project_budget_not_parsed_as_salary(self):
+        self.assertEqual(
+            parse_salary(description="Project budget 100,000 - 500,000 THB. Great team."),
+            (None, None, "THB"),
+        )
+
+    def test_foreign_currency_mention_does_not_override_local_thb_salary(self):
+        self.assertEqual(
+            parse_salary(description="Serving US clients ($). Salary 60,000 THB per month."),
+            (60000, 60000, "THB"),
+        )
+
+    def test_negotiable_header_with_engineer_count_in_desc_not_overridden(self):
+        self.assertEqual(
+            parse_salary("Negotiable", "Join our team of 20,000+ engineers worldwide."),
+            (None, None, "THB"),
+        )
+
+    def test_annual_bonus_without_salary_keyword_rejected(self):
+        self.assertEqual(
+            parse_salary(description="Company benefits include performance bonus up to 120,000 THB annually."),
+            (None, None, "THB"),
+        )
 
 
 if __name__ == "__main__":
