@@ -321,17 +321,17 @@ import type {
   MatchedBlueprint,
 } from "./skill-gap-types";
 
-function canonicalizeSkill(raw: string): { canonical: string; lower: string } {
+export function canonicalizeSkill(raw: string): { canonical: string; lower: string } {
   const trimmed = raw.trim();
   const lower = trimmed.toLowerCase();
 
   if (lower === "golang" || lower === "go") return { canonical: "Go", lower: "go" };
   if (lower === "nodejs" || lower === "node.js" || lower === "node") return { canonical: "Node.js", lower: "node.js" };
-  if (lower === "postgres" || lower === "postgresql") return { canonical: "PostgreSQL", lower: "postgresql" };
+  if (lower === "postgres" || lower === "postgresql" || lower.startsWith("postgres ") || lower.startsWith("postgresql ") || /^postgresql?\s*\d+/i.test(lower)) return { canonical: "PostgreSQL", lower: "postgresql" };
   if (lower === "k8s" || lower === "kubernetes") return { canonical: "Kubernetes", lower: "kubernetes" };
   if (lower === "ts" || lower === "typescript") return { canonical: "TypeScript", lower: "typescript" };
   if (lower === "js" || lower === "javascript") return { canonical: "JavaScript", lower: "javascript" };
-  if (lower === "py" || lower === "python" || lower === "python3" || lower.startsWith("python ")) return { canonical: "Python", lower: "python" };
+  if (lower === "py" || lower === "python" || lower === "python3" || lower.startsWith("python ") || /^python\s*\d+/i.test(lower)) return { canonical: "Python", lower: "python" };
   if (lower === "react" || lower === "react.js" || lower === "reactjs") return { canonical: "React", lower: "react" };
   if (lower === "nextjs" || lower === "next.js") return { canonical: "Next.js", lower: "next.js" };
   if (lower === "vue" || lower === "vue.js" || lower === "vuejs") return { canonical: "Vue.js", lower: "vue.js" };
@@ -343,11 +343,12 @@ function canonicalizeSkill(raw: string): { canonical: string; lower: string } {
   if (lower === "mongodb" || lower === "mongo") return { canonical: "MongoDB", lower: "mongodb" };
   if (lower === "tailwind" || lower === "tailwindcss" || lower === "tailwind css") return { canonical: "Tailwind CSS", lower: "tailwind css" };
 
-  let canonical = trimmed;
-  if (/^[a-z0-9\s\.\-#+]+$/.test(trimmed) && trimmed.length > 1) {
-    canonical = trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+  const stripped = trimmed.replace(/\s+v?\d+(?:\.\d+)*$/i, "").trim();
+  let canonical = stripped || trimmed;
+  if (/^[a-z0-9\s\.\-#+]+$/i.test(canonical) && canonical.length > 1) {
+    canonical = canonical.charAt(0).toUpperCase() + canonical.slice(1);
   }
-  return { canonical, lower };
+  return { canonical, lower: canonical.toLowerCase() };
 }
 
 export async function calculateSkillGap(userSkills: string[] = []): Promise<SkillGapResponse> {

@@ -141,6 +141,50 @@ class TestMarkdownExporterAndTemplate(unittest.TestCase):
         self.assertIsNone(result)
         turso.sync_blueprint.assert_not_called()
 
+    def test_render_spec_strips_double_periods_in_failure_modes(self):
+        spec = make_spec(
+            failure_modes=[
+                FailureMode(
+                    failure="The provider delivers the same event twice.",
+                    recovery="Return 200 duplicate.",
+                ),
+                FailureMode(
+                    failure="Database connection timed out",
+                    recovery="Retry with exponential backoff.",
+                ),
+            ]
+        )
+        rendered = self.exporter.render_spec(
+            spec=spec,
+            target_role="Backend Engineer",
+            generated_date="2026-10-10",
+        )
+        self.assertIn("- **The provider delivers the same event twice.** Return 200 duplicate.", rendered)
+        self.assertNotIn("twice..**", rendered)
+        self.assertIn("- **Database connection timed out.** Retry with exponential backoff.", rendered)
+
+    def test_render_spec_deduplicates_step_prefixes_in_walking_skeleton(self):
+        spec = make_spec(
+            walking_skeleton=[
+                "Step 1: POST /webhooks/promptpay stores raw event",
+                "2. Verify HMAC signature before database touch",
+                "3. Step 3: Write ledger entry in same transaction",
+                "Deploy thin slice locally",
+            ]
+        )
+        rendered = self.exporter.render_spec(
+            spec=spec,
+            target_role="Backend Engineer",
+            generated_date="2026-10-10",
+        )
+        self.assertIn("1. POST /webhooks/promptpay stores raw event", rendered)
+        self.assertNotIn("1. Step 1:", rendered)
+        self.assertIn("2. Verify HMAC signature before database touch", rendered)
+        self.assertNotIn("2. 2.", rendered)
+        self.assertIn("3. Write ledger entry in same transaction", rendered)
+        self.assertNotIn("3. Step 3:", rendered)
+        self.assertIn("4. Deploy thin slice locally", rendered)
+
 
 class TestIdeationEngine(unittest.TestCase):
     def setUp(self):
@@ -246,6 +290,47 @@ class TestIdeationEngine(unittest.TestCase):
             self.assertIsNone(banned.search(text), f"{role}: {banned.search(text)}")
             self.assertTrue(spec.walking_skeleton and spec.failure_modes and spec.verification)
             self.assertIn(spec.title, FALLBACK_TITLES)
+
+    def test_ideation_system_instruction_contains_architecture_guardrails(self):
+        from src.generator.ideation_engine import IDEATION_SYSTEM_INSTRUCTION
+        # Webhook status codes: 5xx / 409, never 422
+        self.assertIn("422", IDEATION_SYSTEM_INSTRUCTION)
+        self.assertTrue(
+            "5xx" in IDEATION_SYSTEM_INSTRUCTION or "503" in IDEATION_SYSTEM_INSTRUCTION
+        )
+        self.assertIn("409", IDEATION_SYSTEM_INSTRUCTION)
+        # Autonomous / independent transactions for status updates
+        self.assertTrue(
+            "autonomous" in IDEATION_SYSTEM_INSTRUCTION.lower()
+            or "independent transaction" in IDEATION_SYSTEM_INSTRUCTION.lower()
+        )
+        # Concurrency & invariants: asyncio.gather, forbid pytest-xdist
+        self.assertIn("asyncio.gather", IDEATION_SYSTEM_INSTRUCTION)
+        self.assertIn("pytest-xdist", IDEATION_SYSTEM_INSTRUCTION)
+        self.assertTrue(
+            "interleaving" in IDEATION_SYSTEM_INSTRUCTION.lower()
+        )
+        # Tech stack versions
+        self.assertTrue(
+            "version" in IDEATION_SYSTEM_INSTRUCTION.lower()
+        )
+
+    def test_generate_project_spec_strips_stack_versions(self):
+        mock_spec = make_spec(
+            target_tech_stack=["Python 3.12", "PostgreSQL 16", "FastAPI v0.110.0", "Docker"]
+        )
+        mock_resp = MagicMock()
+        mock_resp.parsed = mock_spec
+        self.mock_client.models.generate_content.return_value = mock_resp
+
+        result = self.engine.generate_project_spec(
+            target_role="Backend Engineer",
+            tech_stack=["Python", "FastAPI", "PostgreSQL"],
+        )
+        self.assertEqual(
+            result.target_tech_stack,
+            ["Python", "PostgreSQL", "FastAPI", "Docker"]
+        )
 
 
 class TestGeneratorOrchestrator(unittest.TestCase):

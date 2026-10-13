@@ -7,6 +7,7 @@ project spec: one core problem, one service, one datastore.
 from __future__ import annotations
 
 import logging
+import re
 from typing import List, Optional
 
 from google.genai import types
@@ -24,13 +25,14 @@ Depth over breadth:
 - System boundary: exactly one service and one primary datastore, plus at most one cache or queue, and only when the core problem cannot be solved without it. No microservices, no second database, no service mesh, no multi-region setup.
 - Ground the problem in a real Thailand business context without widening the scope.
 - Use the provided market stack where it fits the core problem. Leave out anything the problem does not need.
+- target_tech_stack: list bare technology names without version numbers (e.g. 'Python', 'PostgreSQL', 'FastAPI', not 'Python 3.12' or 'PostgreSQL 16').
 
 Every section must be concrete enough to build from:
 - walking_skeleton: ordered steps. Step 1 is a thin end-to-end slice that runs locally (request in, row stored, result readable). Each later step adds one capability.
-- contracts: typed request, response and event models (Pydantic or OpenAPI) with status codes.
-- database_schema: tables, keys and the constraints that enforce the core invariant.
+- contracts: typed request, response and event models (Pydantic or OpenAPI) with status codes. Webhook retry responses must use HTTP 5xx (e.g. 503 Service Unavailable) or 409 Conflict, and NEVER 422 Unprocessable Entity (senders treat 4xx as terminal client errors and drop the event).
+- database_schema: tables, keys and the constraints that enforce the core invariant. On failures, status updates (e.g. recording a FAILED state or dead-letter row) must be committed in an autonomous or independent transaction before or outside the main rollback so the failure state is preserved.
 - failure_modes: concrete failures (duplicate delivery, crash between two writes, dependency down, malformed input) and how the system detects and recovers from each.
-- verification: falsifiable checks runnable locally with pytest, Locust or Playwright, stated as counts or invariants (for example "100 duplicate deliveries produce exactly 1 ledger row").
+- verification: falsifiable checks runnable locally with pytest, Locust or Playwright, stated as counts or invariants (for example "100 duplicate deliveries produce exactly 1 ledger row"). Verification checks must hold true under any request interleaving (no flaky assumptions about scheduling order). For in-test concurrency, specify asyncio.gather with httpx.AsyncClient or a thread pool; never rely on pytest-xdist for in-test concurrency assertions.
 - out_of_scope: the tempting additions you deliberately excluded.
 
 Forbidden:
@@ -262,6 +264,14 @@ class IdeationEngine(BaseGeminiService):
         if spec is None:
             logger.warning("[IdeationEngine] Gemini unavailable; using curated archetype spec.")
             return self._build_fallback_spec(target_role, tech_stack, domain_hint)
+
+        if getattr(spec, "target_tech_stack", None):
+            cleaned_stack = []
+            for t in spec.target_tech_stack:
+                cleaned = re.sub(r"\s+v?\d+(?:\.\d+)*$", "", t).strip()
+                cleaned_stack.append(cleaned or t)
+            spec.target_tech_stack = cleaned_stack
+
         return spec
 
     def _build_fallback_spec(

@@ -35,6 +35,11 @@ def _yaml_str(value: str) -> str:
     return json.dumps(value, ensure_ascii=False)
 
 
+def _clean_step(step: str) -> str:
+    """Strips duplicated leading step numbering like 'Step 1:', '1.', or '1. Step 1:'."""
+    return re.sub(r"^(?:(?:step\s*\d+[:\.\s-]*)|(?:\d+[\.\)]\s*))+", "", step, flags=re.IGNORECASE).strip()
+
+
 def render_spec_markdown(
     spec: ProjectIdeaSpec,
     target_role: str,
@@ -42,8 +47,8 @@ def render_spec_markdown(
 ) -> str:
     """Renders ProjectIdeaSpec into Markdown with YAML frontmatter. Every line comes from the spec."""
     stack_yaml = "\n".join(f"  - {_yaml_str(t)}" for t in spec.target_tech_stack)
-    skeleton_md = "\n".join(f"{i}. {step}" for i, step in enumerate(spec.walking_skeleton, 1))
-    failures_md = "\n".join(f"- **{fm.failure}.** {fm.recovery}" for fm in spec.failure_modes)
+    skeleton_md = "\n".join(f"{i}. {_clean_step(step)}" for i, step in enumerate(spec.walking_skeleton, 1))
+    failures_md = "\n".join(f"- **{fm.failure.rstrip('.')}.** {fm.recovery}" for fm in spec.failure_modes)
     verification_md = "\n".join(f"- [ ] {check}" for check in spec.verification)
     out_of_scope_md = "\n".join(f"- {item}" for item in spec.out_of_scope)
 
