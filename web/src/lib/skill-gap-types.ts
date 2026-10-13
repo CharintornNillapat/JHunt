@@ -15,6 +15,7 @@ export interface RecommendedSkill {
   unlockJobsCount: number;
   unlockPercentage: number; // % additional market reach unlocked
   avgSalary?: number; // Average disclosed compensation in THB/mo if available
+  salarySampleCount?: number; // Sample size n of disclosed THB postings (n >= 5)
 }
 
 export interface MatchedBlueprint {

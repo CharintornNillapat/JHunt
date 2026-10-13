@@ -418,6 +418,11 @@ export default function SkillGapMatcher({ initialData }: SkillGapMatcherProps) {
                         <div className="flex items-center gap-1 text-cyan-400/90">
                           <Banknote className="h-3 w-3" />
                           <span>฿{rec.avgSalary.toLocaleString()}/mo avg</span>
+                          {rec.salarySampleCount ? (
+                            <span className="text-zinc-500 text-[10px]">
+                              (n={rec.salarySampleCount})
+                            </span>
+                          ) : null}
                         </div>
                       )}
                     </div>

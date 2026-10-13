@@ -1303,6 +1303,8 @@ class TestTursoExporterIntegration(unittest.TestCase):
         self.assertIn("FastAPI", call_kwargs["tech_stack"])
         self.assertIn("Flash Sale Inventory Locking Engine", call_kwargs["spec_markdown"])
 
+
+class TestSkillStats(unittest.TestCase):
     def test_skill_stats_table_created(self):
         temp_dir = tempfile.mkdtemp(prefix="jhunt_stats_table_")
         try:
@@ -1425,6 +1427,100 @@ class TestTursoExporterIntegration(unittest.TestCase):
         batch_args = mock_client.batch.call_args[0][0]
         self.assertTrue(any("DELETE FROM skill_stats" in (stmt[0] if isinstance(stmt, (tuple, list)) else stmt) for stmt in batch_args))
         self.assertTrue(any("INSERT INTO skill_stats" in (stmt[0] if isinstance(stmt, (tuple, list)) else stmt) for stmt in batch_args))
+    def test_skill_stats_filter_by_sample_size(self):
+        """Verifies filtering skill_stats by min_salary_count >= 5 rejects low-sample outliers."""
+        temp_dir = tempfile.mkdtemp(prefix="jhunt_stats_filter_")
+        try:
+            db_path = Path(temp_dir) / "stats_filter.db"
+            db = DatabaseManager(db_path=db_path)
+
+            # Insert 5 jobs with THB salary for "Go" (n=5)
+            for i in range(5):
+                job_id = f"job_go_{i}"
+                db.save_job({
+                    "id": job_id, "title": f"Go Dev {i}", "company": "Tech Corp", "url": f"http://go/{i}",
+                    "min_salary": 50000 + (i * 5000), "max_salary": 70000 + (i * 5000), "currency": "THB"
+                })
+                db.save_extracted_skills(job_id, ExtractedJob(
+                    job_title="Go Dev", company="Tech Corp", experience_level="Mid-Level",
+                    must_have_skills=["Go"], nice_to_have_skills=[],
+                    frameworks=[], databases=[], cloud_infra=[], tools=[]
+                ))
+
+            # Insert 3 jobs with THB salary for "Rust" (n=3, high salary but low sample count)
+            for i in range(3):
+                job_id = f"job_rust_{i}"
+                db.save_job({
+                    "id": job_id, "title": f"Rust Dev {i}", "company": "Crypto Corp", "url": f"http://rust/{i}",
+                    "min_salary": 120000, "max_salary": 150000, "currency": "THB"
+                })
+                db.save_extracted_skills(job_id, ExtractedJob(
+                    job_title="Rust Dev", company="Crypto Corp", experience_level="Senior",
+                    must_have_skills=["Rust"], nice_to_have_skills=[],
+                    frameworks=[], databases=[], cloud_infra=[], tools=[]
+                ))
+
+            # Insert 1 job with USD salary for "Elixir" (USD not THB)
+            db.save_job({
+                "id": "job_elixir_0", "title": "Elixir Dev", "company": "Remote Co", "url": "http://elixir/0",
+                "min_salary": 4000, "max_salary": 6000, "currency": "USD"
+            })
+            db.save_extracted_skills("job_elixir_0", ExtractedJob(
+                job_title="Elixir Dev", company="Remote Co", experience_level="Senior",
+                must_have_skills=["Elixir"], nice_to_have_skills=[],
+                frameworks=[], databases=[], cloud_infra=[], tools=[]
+            ))
+
+            db.refresh_skill_stats()
+
+            # Query with min_salary_count = 5 (Task 2.2 threshold)
+            filtered_stats = db.get_skill_stats(min_salary_count=5)
+            filtered_skills = [s["skill"] for s in filtered_stats]
+
+            self.assertIn("Go", filtered_skills)
+            self.assertNotIn("Rust", filtered_skills)  # Rejected because n=3 < 5
+            self.assertNotIn("Elixir", filtered_skills)  # Rejected because n=0 THB
+
+            go_stat = next(s for s in filtered_stats if s["skill"] == "Go")
+            self.assertEqual(go_stat["salary_count"], 5)
+            self.assertGreater(go_stat["avg_salary_thb"], 0)
+
+            # Query with min_salary_count = 1 includes both Go and Rust
+            low_thresh_stats = db.get_skill_stats(min_salary_count=1)
+            low_thresh_skills = [s["skill"] for s in low_thresh_stats]
+            self.assertIn("Go", low_thresh_skills)
+            self.assertIn("Rust", low_thresh_skills)
+
+            # Query without filter returns all skills
+            all_stats = db.get_skill_stats()
+            all_skills = [s["skill"] for s in all_stats]
+            self.assertIn("Go", all_skills)
+            self.assertIn("Rust", all_skills)
+            self.assertIn("Elixir", all_skills)
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_turso_get_skill_stats_filter_by_sample_size(self):
+        """Verifies TursoClient.get_skill_stats constructs parameterized WHERE salary_count >= ? query."""
+        mock_client = MagicMock()
+        mock_client.execute.return_value = MagicMock(
+            columns=["skill", "category", "job_count", "salary_count", "avg_salary_thb", "updated_at"],
+            rows=[["Go", "language", 10, 5, 65000, "2026-10-13 00:00:00"]],
+        )
+        turso = TursoClient(client=mock_client)
+        mock_client.execute.reset_mock()
+        results = turso.get_skill_stats(min_salary_count=5, category="language", limit=10)
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["skill"], "Go")
+        self.assertEqual(results[0]["salary_count"], 5)
+
+        mock_client.execute.assert_called_once()
+        query, params = mock_client.execute.call_args[0]
+        self.assertIn("salary_count >= ?", query)
+        self.assertIn("category = ?", query)
+        self.assertIn("ORDER BY avg_salary_thb DESC", query)
+        self.assertEqual(params, ["language", 5, 10])
 
 
 if __name__ == "__main__":

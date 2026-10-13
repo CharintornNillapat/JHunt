@@ -174,7 +174,7 @@ export async function getMarketAnalytics(): Promise<MarketAnalytics | null> {
       };
 
       const topCompensatedSkills: CompensatedSkillItem[] = statsRows
-        .filter((r) => Number(r.salary_count ?? 0) >= 1 && Number(r.avg_salary_thb ?? 0) > 0)
+        .filter((r) => Number(r.salary_count ?? 0) >= 5 && Number(r.avg_salary_thb ?? 0) > 0)
         .map((r) => ({
           skill: String(r.skill ?? ""),
           avg_salary: Number(r.avg_salary_thb ?? 0),
@@ -214,10 +214,11 @@ export async function getMarketAnalytics(): Promise<MarketAnalytics | null> {
         JOIN jobs j ON s.job_id = j.id
         WHERE j.min_salary IS NOT NULL 
           AND j.max_salary IS NOT NULL 
+          AND j.currency = 'THB'
           AND s.skill_name IS NOT NULL
           AND (s.experience_level IS NULL OR s.experience_level != 'Non-Tech')
         GROUP BY s.skill_name
-        HAVING sample_count >= 1
+        HAVING sample_count >= 5
         ORDER BY avg_salary DESC
         LIMIT 10;
       `),
@@ -433,13 +434,16 @@ export async function calculateSkillGap(userSkills: string[] = []): Promise<Skil
       turso.execute(`
         SELECT 
           s.skill_name,
+          COUNT(DISTINCT j.id) as sample_count,
           ROUND(AVG((j.min_salary + j.max_salary) / 2)) as avg_salary
         FROM skills_extracted s
         JOIN jobs j ON s.job_id = j.id
         WHERE j.min_salary IS NOT NULL 
           AND j.max_salary IS NOT NULL 
+          AND j.currency = 'THB'
           AND s.skill_name IS NOT NULL
         GROUP BY s.skill_name
+        HAVING sample_count >= 5
       `),
     ]);
 
@@ -454,12 +458,15 @@ export async function calculateSkillGap(userSkills: string[] = []): Promise<Skil
     }
 
     const allProjects = blueprintsRes.status === "fulfilled" ? blueprintsRes.value : [];
-    const salaryMap = new Map<string, number>();
+    const salaryMap = new Map<string, { avgSalary: number; sampleCount: number }>();
     if (compRes.status === "fulfilled") {
       for (const row of compRes.value.rows) {
         if (row.skill_name && row.avg_salary) {
           const { lower } = canonicalizeSkill(String(row.skill_name));
-          salaryMap.set(lower, Number(row.avg_salary));
+          salaryMap.set(lower, {
+            avgSalary: Number(row.avg_salary),
+            sampleCount: Number(row.sample_count ?? 0),
+          });
         }
       }
     }
@@ -566,10 +573,11 @@ export async function calculateSkillGap(userSkills: string[] = []): Promise<Skil
       const coOccurRate = matchedJobsCount > 0
         ? Math.round((c.coOccurCount / matchedJobsCount) * 100)
         : 0;
-      const unlockPct = Math.max(
-        1,
-        Math.round((c.unlockCount / totalTechJobs) * 100)
-      );
+      const unlockPct = totalTechJobs > 0
+        ? Math.round((c.unlockCount / totalTechJobs) * 100)
+        : 0;
+
+      const salaryInfo = salaryMap.get(c.lower);
 
       return {
         name: canonicalMap.get(c.lower) || c.lower,
@@ -577,7 +585,8 @@ export async function calculateSkillGap(userSkills: string[] = []): Promise<Skil
         coOccurrenceRate: coOccurRate,
         unlockJobsCount: c.unlockCount,
         unlockPercentage: unlockPct,
-        avgSalary: salaryMap.get(c.lower),
+        avgSalary: salaryInfo?.avgSalary,
+        salarySampleCount: salaryInfo?.sampleCount,
       };
     });
 

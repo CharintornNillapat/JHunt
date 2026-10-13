@@ -59,7 +59,7 @@ function CustomSalaryTooltip({
         <div className="font-mono text-cyan-400 mt-1 flex items-center gap-1.5">
           <span>฿{data.avg_salary.toLocaleString()}/mo</span>
           <span className="text-zinc-500">
-            ({data.sample_count} posting{data.sample_count > 1 ? "s" : ""})
+            (n={data.sample_count} {data.sample_count === 1 ? "job" : "jobs"})
           </span>
         </div>
       </div>
@@ -247,11 +247,11 @@ export default function AnalyticsCharts({ analytics }: AnalyticsChartsProps) {
           <div className="flex items-center gap-2.5">
             <Banknote className="h-4 w-4 text-cyan-400" />
             <h3 className="text-sm font-semibold text-white tracking-tight">
-              Top Compensated Skills (THB/month)
+              Top Compensated Skills (THB/month, n ≥ 5)
             </h3>
           </div>
           <span className="text-[10px] font-mono text-zinc-500 uppercase">
-            Compensation Benchmarks
+            Sample size: n ≥ 5 postings
           </span>
         </div>
 
@@ -313,6 +313,9 @@ export default function AnalyticsCharts({ analytics }: AnalyticsChartsProps) {
                   <span className="text-zinc-300">{item.skill}:</span>
                   <span className="text-cyan-400 font-semibold">
                     ฿{item.avg_salary.toLocaleString()}/mo
+                  </span>
+                  <span className="text-zinc-500 text-[11px]">
+                    (n={item.sample_count} {item.sample_count === 1 ? "job" : "jobs"})
                   </span>
                 </div>
               ))}

@@ -1,54 +1,48 @@
-# Build Report: Task 2.1 — Pre-Aggregated Rollup Table (`skill_stats`)
+# Build Report: Task 2.2 — Statistically Honest Telemetry
 
-**Task:** 2.1  
-**Spec Reference:** `workflow/stages/01_spec/output/task-2.1-spec.md`  
-**Test Suite:** 195 passed (`uv run python -m unittest discover tests`), `npm run lint` & `npm run build` passed.
+**Task:** 2.2  
+**Spec Reference:** `workflow/stages/01_spec/output/task-2.2-spec.md`  
+**Test Suite:** 197 passed (`uv run python -m unittest discover tests`), `npm run lint` & `npm run build` passed.
 
 ---
 
 ## Changes Implemented
 
-1. **`src/storage/schema.py` (Schema & Helper Definition)**:
-   - Defined `SKILL_STATS_DDL` creating `skill_stats` (`skill TEXT PRIMARY KEY`, `category TEXT`, `job_count INTEGER NOT NULL`, `salary_count INTEGER DEFAULT 0`, `avg_salary_thb INTEGER`, `updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`).
-   - Added `SKILL_STATS_DDL` to `TABLE_STATEMENTS`.
-   - Added `idx_skill_stats_category` and `idx_skill_stats_job_count` to `INDEX_STATEMENTS` and `EXPECTED_INDEXES`.
-   - Added canonicalization and category classification helpers (`canonicalize_skill_name`, `classify_skill_category`, `aggregate_skill_stats`).
+1. **`web/src/lib/turso.ts` (Statistical Rigor in Analytics & Skill-Gap Calculations)**:
+   - **Fast Path (`getMarketAnalytics`)**: Raised filter threshold from `salary_count >= 1` to `salary_count >= 5` for `topCompensatedSkills`.
+   - **Fallback Path (`getMarketAnalytics`)**: Added `AND j.currency = 'THB'` and raised `HAVING sample_count >= 1` to `HAVING sample_count >= 5` in raw compensation query.
+   - **`calculateSkillGap()` Query**: Added `AND j.currency = 'THB'`, `HAVING sample_count >= 5`, and selected `sample_count` alongside `avg_salary`.
+   - **`calculateSkillGap()` Metric Mapping**:
+     - Removed the artificial 1% floor (`Math.max(1, ...)`). Unlocking 0 additional jobs now honestly reports `0%`.
+     - Forwarded `salarySampleCount` from `salaryMap` into each `RecommendedSkill` item.
 
-2. **`src/storage/db.py` (Local SQLite Rollup)**:
-   - Implemented `refresh_skill_stats() -> int`: queries joined `skills_extracted` and `jobs` (filtering out `Non-Tech`), computes deduplicated skill metrics and THB average salaries, and executes a full replacement (`DELETE FROM skill_stats; INSERT INTO skill_stats ...`) in a single transaction.
-   - Implemented `get_skill_stats(category=None, limit=None) -> List[Dict[str, Any]]`: retrieves sorted pre-aggregated stats.
+2. **`web/src/lib/skill-gap-types.ts` (Contract Extension)**:
+   - Added `salarySampleCount?: number;` to the `RecommendedSkill` interface.
 
-3. **`src/storage/turso_client.py` (Turso LibSQL Rollup)**:
-   - Implemented `refresh_skill_stats() -> int`: computes rollup and sends an atomic batch transaction containing `DELETE FROM skill_stats` followed by parameterized `INSERT INTO skill_stats` via `client.batch()`.
-   - Implemented `get_skill_stats(category=None, limit=None) -> List[Dict[str, Any]]`: queries `skill_stats` from Turso cloud.
+3. **`web/src/components/AnalyticsCharts.tsx` (Transparent Benchmark Telemetry)**:
+   - Updated chart title to `Top Compensated Skills (THB/month, n ≥ 5)`.
+   - Updated category badge to `Sample size: n ≥ 5 postings`.
+   - Added sample count badge `(n={item.sample_count} jobs)` to quick benchmark pills.
+   - Updated `CustomSalaryTooltip` to display `(n={data.sample_count} jobs)`.
 
-4. **`main.py` (Pipeline Rollup Refresh)**:
-   - Invoked `active_storage.refresh_skill_stats()` in both `run_full_pipeline()` and `run_analyze_pipeline()` right after LLM extraction / clustering.
-   - Logged summary message: `[Main] Pre-aggregated skill_stats rollup updated with N skills.`
+4. **`web/src/components/SkillGapMatcher.tsx` (Honest Unlock & Salary Sample Count)**:
+   - Rendered sample size badge `(n={rec.salarySampleCount})` alongside average compensation figures in recommended companion cards.
+   - Preserved honest unlock potential formatting (`+{rec.unlockPercentage}% reach`) allowing 0% display when no additional jobs are unlocked.
 
-5. **`web/src/lib/turso.ts` (Next.js Dashboard Integration & Resilient Fallback)**:
-   - In `getMarketAnalytics()`: queries `skill_stats` first.
-   - If `skill_stats` has rows, maps categories (`language`, `cloud`, `database`, `framework`) and `top_compensated_skills` directly from the rollup, eliminating table scans on `skills_extracted` and in-memory JSON parsing.
-   - If `skill_stats` is empty or unavailable, seamlessly falls back to legacy raw scan of `skills_extracted`.
+5. **`src/storage/db.py` & `src/storage/turso_client.py` (Storage Parameterized Filtering)**:
+   - Extended `get_skill_stats(..., min_salary_count: Optional[int] = None)` to filter `salary_count >= ?` using parameterized SQL and order by `avg_salary_thb DESC`.
 
----
-
-## Tests Added & Verified
-
-- **`tests/test_storage.py`**:
-  - `test_skill_stats_table_created`: Verifies `skill_stats` table and indexes are created in SQLite and present in `EXPECTED_INDEXES`.
-  - `test_refresh_skill_stats_aggregates_counts_and_thb_salaries`: Verifies multi-job insertion with THB, non-THB, and missing salaries accurately calculates `job_count`, `salary_count`, and `avg_salary_thb` while excluding non-THB and `Non-Tech` rows.
-  - `test_refresh_skill_stats_turso_batch`: Verifies `TursoClient.refresh_skill_stats()` issues an atomic batch containing `DELETE FROM skill_stats` and `INSERT INTO skill_stats`.
-- **`tests/test_cli.py`**:
-  - `test_run_full_pipeline_refreshes_skill_stats`: Verifies `run_full_pipeline` calls `refresh_skill_stats()` on active storage.
+6. **`tests/test_storage.py` (Hermetic Unit Testing)**:
+   - Added `test_skill_stats_filter_by_sample_size`: verifies filtering by `min_salary_count=5` correctly excludes skills with 1–4 salary disclosures as well as USD salaries, while including skills with $\ge 5$.
+   - Added `test_turso_get_skill_stats_filter_by_sample_size`: verifies parameterized query generation and argument passing in `TursoClient`.
 
 ---
 
 ## Verification Status
 
-- **Hermetic Unit Tests**: 195 passed, 0 failures, 0 errors (`uv run python -m unittest discover tests`).
+- **Hermetic Unit Tests**: 197 passed, 0 failures, 0 errors (`uv run python -m unittest discover tests`).
 - **Web Verification**:
   - `npm run lint` passed (clean exit 0).
-  - `npm run build` passed (Turbopack production build compiled successfully in 1480ms, all routes generated cleanly).
-- **Production Touch Points**: None executed by agent (no writes to live Turso, no Telegram messages sent, no Gemini quota spent).
-- **Needs Human Operator**: Optional live Turso DDL provided in `workflow/stages/01_spec/output/task-2.1-spec.md`.
+  - `npm run build` passed (Turbopack production build compiled successfully, all routes valid).
+- **Git Diff Scope**: Only the 7 files relevant to Task 2.2 were modified.
+- **Production Touch Points**: Zero live Turso writes, zero Telegram messages, zero Gemini API quota consumed.

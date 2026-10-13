@@ -481,17 +481,33 @@ class DatabaseManager:
             return len(stats)
 
     def get_skill_stats(
-        self, category: Optional[str] = None, limit: Optional[int] = None
+        self,
+        category: Optional[str] = None,
+        limit: Optional[int] = None,
+        min_salary_count: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """
         Retrieves pre-aggregated skill statistics from skill_stats.
+        If min_salary_count is provided, filters for skills with at least that many salary samples
+        and orders by avg_salary_thb DESC.
         """
         query = "SELECT skill, category, job_count, salary_count, avg_salary_thb, updated_at FROM skill_stats"
+        conditions: List[str] = []
         params: List[Any] = []
         if category:
-            query += " WHERE category = ?"
+            conditions.append("category = ?")
             params.append(category)
-        query += " ORDER BY job_count DESC"
+        if min_salary_count is not None and min_salary_count > 0:
+            conditions.append("salary_count >= ?")
+            params.append(min_salary_count)
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+
+        if min_salary_count is not None and min_salary_count > 0:
+            query += " ORDER BY avg_salary_thb DESC, job_count DESC"
+        else:
+            query += " ORDER BY job_count DESC"
+
         if limit is not None and limit > 0:
             query += " LIMIT ?"
             params.append(limit)
