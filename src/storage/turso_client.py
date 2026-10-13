@@ -325,11 +325,25 @@ class TursoClient:
 
         # 1. Run table creation statements first
         table_stmts = list(TABLE_STATEMENTS)
+        batch_failed = False
         if hasattr(self.client, "batch"):
-            self.client.batch(table_stmts)
+            try:
+                self.client.batch(table_stmts)
+            except Exception as batch_err:
+                logger.warning(
+                    f"[TursoClient] Batch table creation failed ({batch_err}); "
+                    "falling back to isolated table statement execution."
+                )
+                batch_failed = True
         else:
+            batch_failed = True
+
+        if batch_failed:
             for stmt in table_stmts:
-                self._execute_ddl(stmt)
+                try:
+                    self._execute_ddl(stmt)
+                except Exception as e:
+                    logger.warning(f"[TursoClient] Non-fatal error creating table ({e}): {stmt}")
 
         # 2. Self-healing migration for legacy columns
         try:

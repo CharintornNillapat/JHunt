@@ -1,44 +1,42 @@
-# Build Report: Task 1.3 — Structural Error Classification & Gemini Quota Preservation
+# Build Report: Task 1.4 — Schema & Index Reconciliation
 
-**Task:** 1.3  
-**Spec Reference:** `workflow/stages/01_spec/output/task-1.3-spec.md`  
-**Test Suite:** 183 passed (`uv run python -m unittest discover tests`)
+**Task:** 1.4  
+**Spec Reference:** `workflow/stages/01_spec/output/task-1.4-spec.md`  
+**Test Suite:** 187 passed (`uv run python -m unittest discover tests`)
 
 ---
 
 ## Changes Implemented
 
-1. **`src/extractor/gemini_client.py` (Structural Error Classification & Resilience)**:
-   - Imported `ValidationError` from `pydantic`.
-   - Defined `DEFAULT_OVERALL_DEADLINE = 75.0` (seconds).
-   - Updated `is_deadline_or_timeout_error(err)` to inspect `.code == 504` and `.status == 'DEADLINE_EXCEEDED'` before word-boundary regex fallback `\b504\b`.
-   - Updated `is_transient_error(err)`:
-     - Immediately returns `TransientErrorInfo(False, False, False, False)` if `err` is an instance of `ValidationError` or contains `ValidationError`.
-     - Structurally inspects `.code` / `.status_code` (`503`, `429`, `504`, `500`, `502`) and `.status` / `.status_code_name` (`UNAVAILABLE`, `RESOURCE_EXHAUSTED`, `DEADLINE_EXCEEDED`, `INTERNAL`).
-     - Uses word-boundary regex patterns (`\b500\b`, `\b502\b`, `\b503\b`, `\b429\b`, `\b504\b`) so numbers like `1500`, `25000`, `50000`, and `5020` are never misclassified as server error codes.
-   - Updated `BaseGeminiService._generate()`:
-     - Enforces overall wall-clock deadline: tracks `start_time = time.monotonic()` and breaks retry loop if `elapsed + sleep_s >= DEFAULT_OVERALL_DEADLINE`.
-     - Passes exception object `e` directly to `is_transient_error(e)` to preserve object attributes (`.code`, `.status`).
-     - Separated response parsing/validation into a dedicated `try ... except ValidationError: ... except Exception:` block outside API error handling.
-     - Immediately aborts on `ValidationError` without burning subsequent retries against the free-tier daily quota.
+1. **`src/storage/schema.py` (Schema & Index Alignment)**:
+   - Updated `GENERATED_PROJECTS_DDL` to remove the virtual `target_role` column, matching live Turso table structure.
+   - Updated `INDEX_STATEMENTS`:
+     - Changed `"CREATE INDEX IF NOT EXISTS idx_projects_role ON generated_projects(target_role)"` to `"CREATE INDEX IF NOT EXISTS idx_projects_role ON generated_projects(role)"`.
+     - Pruned obsolete write-overhead indexes: `idx_jobs_posted_at`, `idx_jobs_source`, and `idx_skills_experience`.
+   - Updated `EXPECTED_INDEXES` to match active index set (`idx_skills_name`, `idx_skills_job_id`, `idx_projects_created_at`, `idx_projects_role`).
 
-2. **`docs/contexts/task-ledger.md`**:
-   - Marked Task 1.3 complete under Phase 1.
+2. **`src/storage/turso_client.py` (Defensive Table DDL Execution)**:
+   - Enclosed table DDL execution in `init_schema()` in a defensive `try ... except` block with warning logging.
+   - Falls back gracefully to isolated execution of each table statement if `self.client.batch(table_stmts)` fails.
+
+3. **`src/storage/db.py` (Migration Cleanup)**:
+   - Removed the obsolete virtual column migration check for `target_role` in `_init_db()` (`PRAGMA table_xinfo` check and `ALTER TABLE generated_projects ADD COLUMN target_role`).
+   - Retained table migrations and cleanly executed updated `SCHEMA_STATEMENTS`.
 
 ---
 
 ## Tests Added & Verified
 
-- **`tests/test_extractor.py`**:
-  - `test_is_transient_error_rejects_numbers_containing_500_and_502`: Asserts numbers like `1500`, `50000`, `25000`, and `5020` evaluate to `is_transient=False`.
-  - `test_is_transient_error_rejects_pydantic_validation_error`: Asserts real `pydantic.ValidationError` containing numbers evaluates to `is_transient=False`.
-  - `test_is_transient_error_structural_status_codes`: Asserts structural status codes (`503`, `429`, `504`, `500`, `502`) and status enums (`UNAVAILABLE`, `RESOURCE_EXHAUSTED`, `DEADLINE_EXCEEDED`) evaluate correctly, while `400` and `404` evaluate to `False`.
-  - `test_generate_aborts_immediately_on_validation_error`: Asserts `_generate` does not retry when response payload fails Pydantic validation (`call_count == 1`, `sleep.call_count == 0`).
-  - `test_generate_respects_overall_wall_clock_deadline`: Asserts `_generate` aborts retries when cumulative time exceeds `DEFAULT_OVERALL_DEADLINE`.
+- **`tests/test_storage.py`**:
+  - `test_idx_projects_role_indexes_role_column`: Verifies `idx_projects_role` is created on column `role` and present in `sqlite_master` without requiring `target_role`.
+  - `test_obsolete_indexes_removed_from_expected_indexes`: Verifies `idx_jobs_posted_at`, `idx_jobs_source`, and `idx_skills_experience` are absent from `EXPECTED_INDEXES` and `ALL_INDEX_STATEMENTS`.
+  - `test_turso_init_schema_table_batch_failure_falls_back_to_isolated_statements`: Verifies table batch failures fall back to isolated single-statement execution without crashing `init_schema()`.
+  - `test_turso_init_schema_no_target_role_warning`: Simulates a Turso database with `generated_projects` without `target_role`; verifies `init_schema()` completes with batch success and zero `target_role` warnings.
 
 ---
 
 ## Verification Status
 
-- **Hermetic Unit Tests**: 183 passed, 0 failures, 0 errors.
-- **Production Touch Points**: None (zero writes to Turso, zero Telegram calls, zero Gemini network calls).
+- **Hermetic Unit Tests**: 187 passed, 0 failures, 0 errors.
+- **Production Touch Points**: None executed by agent (zero writes to Turso, zero Telegram calls, zero Gemini network calls).
+- **Needs Human Operator**: Optional live Turso index cleanup SQL provided in `workflow/stages/01_spec/output/task-1.4-spec.md`.

@@ -14,27 +14,20 @@ GENERATED_PROJECTS_DDL = """
         domain TEXT,
         tech_stack TEXT,
         spec_markdown TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        target_role TEXT GENERATED ALWAYS AS (role) VIRTUAL
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
 """
 
 INDEX_STATEMENTS = (
     "CREATE INDEX IF NOT EXISTS idx_skills_name ON skills_extracted(skill_name)",
-    "CREATE INDEX IF NOT EXISTS idx_skills_experience ON skills_extracted(experience_level)",
     "CREATE INDEX IF NOT EXISTS idx_skills_job_id ON skills_extracted(job_id)",
-    "CREATE INDEX IF NOT EXISTS idx_jobs_posted_at ON jobs(posted_at DESC)",
-    "CREATE INDEX IF NOT EXISTS idx_jobs_source ON jobs(source)",
     "CREATE INDEX IF NOT EXISTS idx_projects_created_at ON generated_projects(created_at DESC)",
-    "CREATE INDEX IF NOT EXISTS idx_projects_role ON generated_projects(target_role)",
+    "CREATE INDEX IF NOT EXISTS idx_projects_role ON generated_projects(role)",
 )
 
 EXPECTED_INDEXES = (
     "idx_skills_name",
-    "idx_skills_experience",
     "idx_skills_job_id",
-    "idx_jobs_posted_at",
-    "idx_jobs_source",
     "idx_projects_created_at",
     "idx_projects_role",
 )

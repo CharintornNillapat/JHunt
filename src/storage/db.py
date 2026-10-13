@@ -93,11 +93,6 @@ class DatabaseManager:
                 if "category" not in skills_cols:
                     conn.execute("ALTER TABLE skills_extracted ADD COLUMN category TEXT")
 
-            proj_cols = {row["name"] for row in conn.execute("PRAGMA table_xinfo(generated_projects)")}
-            if proj_cols:
-                if "target_role" not in proj_cols:
-                    conn.execute("ALTER TABLE generated_projects ADD COLUMN target_role TEXT GENERATED ALWAYS AS (role) VIRTUAL")
-
             for statement in SCHEMA_STATEMENTS:
                 conn.execute(statement)
 

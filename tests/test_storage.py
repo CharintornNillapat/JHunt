@@ -678,6 +678,133 @@ class TestTursoClient(unittest.TestCase):
         turso = TursoClient(client=mock_client)
         self.assertTrue(turso.is_available, "Turso client should remain available even if index creation fails")
 
+    def test_idx_projects_role_indexes_role_column(self):
+        temp_dir = tempfile.mkdtemp(prefix="jhunt_role_idx_test_")
+        try:
+            db_path = Path(temp_dir) / "role_idx.db"
+            conn = sqlite3.connect(db_path)
+            conn.row_factory = sqlite3.Row
+            conn.execute("""
+                CREATE TABLE generated_projects (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    title TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    difficulty TEXT,
+                    domain TEXT,
+                    tech_stack TEXT,
+                    spec_markdown TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """)
+            conn.commit()
+
+            role_index_stmt = next(s for s in ALL_INDEX_STATEMENTS if "idx_projects_role" in s)
+            conn.execute(role_index_stmt)
+            conn.commit()
+
+            cur = conn.execute("SELECT sql FROM sqlite_master WHERE type='index' AND name='idx_projects_role'")
+            row = cur.fetchone()
+            self.assertIsNotNone(row)
+            self.assertIn("role", row[0])
+            self.assertNotIn("target_role", row[0])
+            conn.close()
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_obsolete_indexes_removed_from_expected_indexes(self):
+        obsolete_indexes = {"idx_jobs_posted_at", "idx_jobs_source", "idx_skills_experience"}
+        for idx in obsolete_indexes:
+            self.assertNotIn(idx, EXPECTED_INDEXES, f"{idx} should be removed from EXPECTED_INDEXES")
+            matching = [s for s in ALL_INDEX_STATEMENTS if idx in s]
+            self.assertEqual(len(matching), 0, f"{idx} should be removed from ALL_INDEX_STATEMENTS")
+
+    def test_turso_init_schema_table_batch_failure_falls_back_to_isolated_statements(self):
+        mock_client = MagicMock()
+
+        def batch_side_effect(stmts):
+            if any("CREATE TABLE" in s for s in stmts if isinstance(s, str)):
+                raise Exception("simulated table batch error")
+            return None
+
+        mock_client.batch.side_effect = batch_side_effect
+        mock_client.execute.return_value = MagicMock()
+
+        turso = TursoClient(client=mock_client)
+        self.assertTrue(turso.is_available)
+        for stmt in TABLE_STATEMENTS:
+            mock_client.execute.assert_any_call(stmt)
+
+    def test_turso_init_schema_no_target_role_warning(self):
+        temp_dir = tempfile.mkdtemp(prefix="jhunt_turso_no_tr_")
+        try:
+            db_path = Path(temp_dir) / "sim_turso_no_tr.db"
+            conn = sqlite3.connect(db_path)
+
+            class SimulatedLibsqlClient:
+                def __init__(self, connection):
+                    self.conn = connection
+                    self.batch_calls = []
+
+                def execute(self, stmt, params=None):
+                    if params is not None:
+                        return self.conn.execute(stmt, params)
+                    return self.conn.execute(stmt)
+
+                def batch(self, stmts):
+                    self.batch_calls.append(stmts)
+                    for stmt in stmts:
+                        if isinstance(stmt, str):
+                            self.conn.execute(stmt)
+                        else:
+                            self.conn.execute(stmt[0], stmt[1])
+
+                def close(self):
+                    self.conn.close()
+
+            sim_client = SimulatedLibsqlClient(conn)
+            conn.execute("""
+                CREATE TABLE generated_projects (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    title TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    difficulty TEXT,
+                    domain TEXT,
+                    tech_stack TEXT,
+                    spec_markdown TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """)
+            conn.commit()
+
+            import logging
+            logger = logging.getLogger("src.storage.turso_client")
+            class LogCapture(logging.Handler):
+                def __init__(self):
+                    super().__init__()
+                    self.records = []
+                def emit(self, record):
+                    self.records.append(record.getMessage())
+
+            capture = LogCapture()
+            logger.addHandler(capture)
+            try:
+                turso = TursoClient(client=sim_client)
+            finally:
+                logger.removeHandler(capture)
+
+            target_role_warnings = [msg for msg in capture.records if "target_role" in msg]
+            self.assertEqual(len(target_role_warnings), 0, f"Unexpected target_role warnings: {target_role_warnings}")
+
+            cols = {row[1] for row in conn.execute("PRAGMA table_info(generated_projects)")}
+            self.assertIn("role", cols)
+            self.assertNotIn("target_role", cols)
+
+            indexes = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='index'")}
+            self.assertIn("idx_projects_role", indexes)
+            conn.close()
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
     def test_malformed_url_falls_back_instead_of_raising(self):
         with patch("libsql_client.create_client_sync", side_effect=ValueError("unsupported URL scheme")):
             turso = TursoClient(database_url="not-a-url", auth_token="x")
