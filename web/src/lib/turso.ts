@@ -407,6 +407,158 @@ export function canonicalizeSkill(raw: string): { canonical: string; lower: stri
   return { canonical, lower: canonical.toLowerCase() };
 }
 
+export interface SkillGapBaseData {
+  jobSkillsMap: Map<string, Set<string>>;
+  canonicalMap: Map<string, string>;
+  overallFrequency: Map<string, number>;
+  salaryMap: Map<string, { avgSalary: number; sampleCount: number }>;
+  allProjects: GeneratedProject[];
+  timestamp: number;
+}
+
+const SKILL_GAP_CACHE_TTL_MS = 10 * 60 * 1000;
+let cachedBaseData: SkillGapBaseData | null = null;
+let baseDataPromise: Promise<SkillGapBaseData> | null = null;
+
+export function clearSkillGapCache(): void {
+  cachedBaseData = null;
+  baseDataPromise = null;
+  console.log("[Turso] In-memory skill-gap cache cleared.");
+}
+
+export async function getSkillGapBaseData(): Promise<SkillGapBaseData> {
+  const now = Date.now();
+  if (cachedBaseData && now - cachedBaseData.timestamp < SKILL_GAP_CACHE_TTL_MS) {
+    return cachedBaseData;
+  }
+
+  if (baseDataPromise) {
+    return baseDataPromise;
+  }
+
+  baseDataPromise = (async () => {
+    try {
+      if (!turso) {
+        return {
+          jobSkillsMap: new Map(),
+          canonicalMap: new Map(),
+          overallFrequency: new Map(),
+          salaryMap: new Map(),
+          allProjects: [],
+          timestamp: Date.now(),
+        };
+      }
+
+      const [skillsRes, blueprintsRes, compRes] = await Promise.allSettled([
+        turso.execute(
+          "SELECT job_id, skill_name, skill, must_have_skills, nice_to_have_skills, frameworks, databases, cloud_infra, tools FROM skills_extracted WHERE (experience_level IS NULL OR experience_level != 'Non-Tech')"
+        ),
+        getAllProjects(),
+        turso.execute(`
+          SELECT 
+            s.skill_name,
+            COUNT(DISTINCT j.id) as sample_count,
+            ROUND(AVG((j.min_salary + j.max_salary) / 2)) as avg_salary
+          FROM skills_extracted s
+          JOIN jobs j ON s.job_id = j.id
+          WHERE j.min_salary IS NOT NULL 
+            AND j.max_salary IS NOT NULL 
+            AND j.currency = 'THB'
+            AND s.skill_name IS NOT NULL
+          GROUP BY s.skill_name
+          HAVING sample_count >= 5
+        `),
+      ]);
+
+      let skillsRows = skillsRes.status === "fulfilled" ? skillsRes.value.rows : [];
+      if (skillsRes.status === "rejected" || skillsRows.length === 0) {
+        try {
+          const fallbackRes = await turso.execute("SELECT * FROM skills_extracted");
+          skillsRows = fallbackRes.rows;
+        } catch (err) {
+          console.error("[Turso] getSkillGapBaseData: Fallback skills query failed:", err);
+        }
+      }
+
+      const allProjects = blueprintsRes.status === "fulfilled" ? blueprintsRes.value : [];
+      const salaryMap = new Map<string, { avgSalary: number; sampleCount: number }>();
+      if (compRes.status === "fulfilled") {
+        for (const row of compRes.value.rows) {
+          if (row.skill_name && row.avg_salary) {
+            const { lower } = canonicalizeSkill(String(row.skill_name));
+            salaryMap.set(lower, {
+              avgSalary: Number(row.avg_salary),
+              sampleCount: Number(row.sample_count ?? 0),
+            });
+          }
+        }
+      }
+
+      const jobSkillsMap = new Map<string, Set<string>>();
+      const canonicalMap = new Map<string, string>();
+      const overallFrequency = new Map<string, number>();
+
+      for (const row of skillsRows) {
+        const jobId = String(row.job_id ?? row.id ?? "");
+        if (!jobId) continue;
+
+        const fields = [
+          row.skill_name,
+          row.skill,
+          row.must_have_skills,
+          row.nice_to_have_skills,
+          row.frameworks,
+          row.databases,
+          row.cloud_infra,
+          row.tools,
+        ];
+
+        const jobSkillSet = jobSkillsMap.get(jobId) ?? new Set<string>();
+
+        for (const f of fields) {
+          if (!f) continue;
+          const tokens = parseTechStack(String(f));
+          for (const tok of tokens) {
+            const { canonical, lower } = canonicalizeSkill(tok);
+            if (!lower) continue;
+            if (!jobSkillSet.has(lower)) {
+              jobSkillSet.add(lower);
+              canonicalMap.set(lower, canonical);
+              overallFrequency.set(lower, (overallFrequency.get(lower) || 0) + 1);
+            }
+          }
+        }
+
+        if (jobSkillSet.size > 0) {
+          jobSkillsMap.set(jobId, jobSkillSet);
+        }
+      }
+
+      const baseData: SkillGapBaseData = {
+        jobSkillsMap,
+        canonicalMap,
+        overallFrequency,
+        salaryMap,
+        allProjects,
+        timestamp: Date.now(),
+      };
+
+      cachedBaseData = baseData;
+      return baseData;
+    } catch (err) {
+      if (cachedBaseData) {
+        console.warn("[Turso] getSkillGapBaseData query failed, serving stale cache:", err);
+        return cachedBaseData;
+      }
+      throw err;
+    } finally {
+      baseDataPromise = null;
+    }
+  })();
+
+  return baseDataPromise;
+}
+
 export async function calculateSkillGap(userSkills: string[] = []): Promise<SkillGapResponse> {
   const fallbackSuggestions = [
     "Python", "TypeScript", "React", "Docker", "PostgreSQL", "FastAPI",
@@ -425,93 +577,10 @@ export async function calculateSkillGap(userSkills: string[] = []): Promise<Skil
     };
   }
 
-  try {
-    const [skillsRes, blueprintsRes, compRes] = await Promise.allSettled([
-      turso.execute(
-        "SELECT job_id, skill_name, skill, must_have_skills, nice_to_have_skills, frameworks, databases, cloud_infra, tools FROM skills_extracted WHERE (experience_level IS NULL OR experience_level != 'Non-Tech')"
-      ),
-      getAllProjects(),
-      turso.execute(`
-        SELECT 
-          s.skill_name,
-          COUNT(DISTINCT j.id) as sample_count,
-          ROUND(AVG((j.min_salary + j.max_salary) / 2)) as avg_salary
-        FROM skills_extracted s
-        JOIN jobs j ON s.job_id = j.id
-        WHERE j.min_salary IS NOT NULL 
-          AND j.max_salary IS NOT NULL 
-          AND j.currency = 'THB'
-          AND s.skill_name IS NOT NULL
-        GROUP BY s.skill_name
-        HAVING sample_count >= 5
-      `),
-    ]);
+  const { jobSkillsMap, canonicalMap, overallFrequency, salaryMap, allProjects } =
+    await getSkillGapBaseData();
 
-    let skillsRows = skillsRes.status === "fulfilled" ? skillsRes.value.rows : [];
-    if (skillsRes.status === "rejected" || skillsRows.length === 0) {
-      try {
-        const fallbackRes = await turso.execute("SELECT * FROM skills_extracted");
-        skillsRows = fallbackRes.rows;
-      } catch (err) {
-        console.error("[Turso] calculateSkillGap: Fallback skills query failed:", err);
-      }
-    }
-
-    const allProjects = blueprintsRes.status === "fulfilled" ? blueprintsRes.value : [];
-    const salaryMap = new Map<string, { avgSalary: number; sampleCount: number }>();
-    if (compRes.status === "fulfilled") {
-      for (const row of compRes.value.rows) {
-        if (row.skill_name && row.avg_salary) {
-          const { lower } = canonicalizeSkill(String(row.skill_name));
-          salaryMap.set(lower, {
-            avgSalary: Number(row.avg_salary),
-            sampleCount: Number(row.sample_count ?? 0),
-          });
-        }
-      }
-    }
-
-    const jobSkillsMap = new Map<string, Set<string>>();
-    const canonicalMap = new Map<string, string>();
-    const overallFrequency = new Map<string, number>();
-
-    for (const row of skillsRows) {
-      const jobId = String(row.job_id ?? row.id ?? "");
-      if (!jobId) continue;
-
-      const fields = [
-        row.skill_name,
-        row.skill,
-        row.must_have_skills,
-        row.nice_to_have_skills,
-        row.frameworks,
-        row.databases,
-        row.cloud_infra,
-        row.tools,
-      ];
-
-      const jobSkillSet = jobSkillsMap.get(jobId) ?? new Set<string>();
-
-      for (const f of fields) {
-        if (!f) continue;
-        const tokens = parseTechStack(String(f));
-        for (const tok of tokens) {
-          const { canonical, lower } = canonicalizeSkill(tok);
-          if (!lower) continue;
-          if (!jobSkillSet.has(lower)) {
-            jobSkillSet.add(lower);
-            canonicalMap.set(lower, canonical);
-            overallFrequency.set(lower, (overallFrequency.get(lower) || 0) + 1);
-          }
-        }
-      }
-
-      if (jobSkillSet.size > 0) {
-        jobSkillsMap.set(jobId, jobSkillSet);
-      }
-    }
-
-    const totalTechJobs = Math.max(jobSkillsMap.size, 1);
+  const totalTechJobs = Math.max(jobSkillsMap.size, 1);
 
     const userLowerSet = new Set(
       userSkills
@@ -645,17 +714,5 @@ export async function calculateSkillGap(userSkills: string[] = []): Promise<Skil
       relevantBlueprints,
       popularSuggestions: popularSuggestions.length > 0 ? popularSuggestions : fallbackSuggestions,
     };
-  } catch (err) {
-    console.error("[Turso] calculateSkillGap failed:", err);
-    return {
-      userSkills,
-      totalTechJobs: 0,
-      matchedJobsCount: 0,
-      coverageRate: 0,
-      recommendedSkills: [],
-      relevantBlueprints: [],
-      popularSuggestions: fallbackSuggestions,
-    };
-  }
 }
 

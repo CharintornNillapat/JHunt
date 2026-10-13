@@ -62,6 +62,19 @@ function RadialGauge({ percentage }: { percentage: number }) {
   );
 }
 
+function areSkillSetsEqual(a?: string[], b?: string[]): boolean {
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+  if (a.length !== b.length) return false;
+  const setA = new Set(a.map((s) => s.trim().toLowerCase()).filter(Boolean));
+  const setB = new Set(b.map((s) => s.trim().toLowerCase()).filter(Boolean));
+  if (setA.size !== setB.size) return false;
+  for (const item of setA) {
+    if (!setB.has(item)) return false;
+  }
+  return true;
+}
+
 export default function SkillGapMatcher({ initialData }: SkillGapMatcherProps) {
   const [selectedSkills, setSelectedSkills] = useState<string[]>(
     initialData?.userSkills && initialData.userSkills.length > 0
@@ -74,6 +87,9 @@ export default function SkillGapMatcher({ initialData }: SkillGapMatcherProps) {
   const [, startTransition] = useTransition();
   const [isLoading, setIsLoading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const lastFetchedSkillsRef = useRef<string[] | null>(
+    initialData?.userSkills ?? null
+  );
 
   // Compute popular suggestions (from live data or baseline)
   const popularSkills =
@@ -107,6 +123,11 @@ export default function SkillGapMatcher({ initialData }: SkillGapMatcherProps) {
 
   // Fetch updated metrics when selectedSkills changes
   useEffect(() => {
+    // Avoid re-fetching on initial mount if server already provided identical initialData
+    if (areSkillSetsEqual(selectedSkills, lastFetchedSkillsRef.current ?? undefined)) {
+      return;
+    }
+
     let isCancelled = false;
     const controller = new AbortController();
 
@@ -122,6 +143,7 @@ export default function SkillGapMatcher({ initialData }: SkillGapMatcherProps) {
         if (!res.ok) throw new Error("Failed to calculate skill gap");
         const json: SkillGapResponse = await res.json();
         if (!isCancelled) {
+          lastFetchedSkillsRef.current = selectedSkills;
           startTransition(() => {
             setData(json);
           });

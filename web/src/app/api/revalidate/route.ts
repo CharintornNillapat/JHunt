@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
+import { clearSkillGapCache } from "@/lib/turso";
+import { clearSkillGapResponseCache } from "@/app/api/skill-gap/route";
 
 export async function POST(request: NextRequest) {
   const secret = process.env.REVALIDATE_TOKEN;
@@ -19,6 +21,8 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    clearSkillGapCache();
+    clearSkillGapResponseCache();
     revalidatePath("/");
     revalidatePath("/analytics");
 
