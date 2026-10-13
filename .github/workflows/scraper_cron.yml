@@ -87,3 +87,17 @@ jobs:
         with:
           path: data/seen_jobs.json
           key: seen-jobs-state-v2-${{ github.run_id }}
+
+      # ── 8. Revalidate Dashboard ISR Cache ─────────────────────────
+      - name: Revalidate Dashboard ISR Cache
+        if: success()
+        env:
+          SITE_URL: ${{ secrets.SITE_URL }}
+          REVALIDATE_TOKEN: ${{ secrets.REVALIDATE_TOKEN }}
+        run: |
+          if [ -n "$SITE_URL" ] && [ -n "$REVALIDATE_TOKEN" ]; then
+            echo "Triggering on-demand ISR cache revalidation at $SITE_URL..."
+            curl -fsS -X POST -H "x-revalidate-token: $REVALIDATE_TOKEN" "$SITE_URL/api/revalidate" || echo "Warning: Revalidation webhook call failed non-fatally."
+          else
+            echo "Skipping cache revalidation: SITE_URL or REVALIDATE_TOKEN not configured."
+          fi

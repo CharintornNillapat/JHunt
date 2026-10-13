@@ -2,8 +2,7 @@ import { getAllProjects } from "@/lib/turso";
 import BlueprintCatalog from "@/components/BlueprintCatalog";
 import ThreeCanvas from "@/components/ThreeCanvas";
 
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
+export const revalidate = 3600;
 
 export default async function HomePage() {
   const projects = await getAllProjects();

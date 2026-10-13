@@ -4,9 +4,7 @@ import AnalyticsSkeleton, { SkillGapSkeleton } from "@/components/AnalyticsSkele
 import SpotlightCard from "@/components/SpotlightCard";
 import { Activity, Cpu, Layers, Sparkles } from "lucide-react";
 
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
-export const fetchCache = "force-no-store";
+export const revalidate = 3600;
 
 const AnalyticsCharts = nextDynamic(
   () => import("@/components/AnalyticsCharts"),
