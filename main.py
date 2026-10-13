@@ -218,6 +218,13 @@ def run_analyze_pipeline(
         analyzer = ClusterAnalyzer(storage=active_storage)
         report = analyzer.generate_market_report()
 
+        if hasattr(active_storage, "refresh_skill_stats"):
+            try:
+                stats_count = active_storage.refresh_skill_stats()
+                print(f"[Main] Pre-aggregated skill_stats rollup updated with {stats_count} skills.")
+            except Exception as e:
+                print(f"[Main] Warning: Failed to refresh skill_stats rollup: {e}")
+
         print(f"\n================ MARKET INTELLIGENCE REPORT ================")
         print(f"Total Postings Analyzed: {report.total_jobs_analyzed}")
         if report.top_must_have_skills:
@@ -349,6 +356,13 @@ def run_full_pipeline(
             limit=extraction_limit,
         )
         results["extracted"] = extracted_count
+
+        if hasattr(active_storage, "refresh_skill_stats"):
+            try:
+                stats_count = active_storage.refresh_skill_stats()
+                print(f"[Main] Pre-aggregated skill_stats rollup updated with {stats_count} skills.")
+            except Exception as e:
+                print(f"[Main] Warning: Failed to refresh skill_stats rollup: {e}")
 
         # Step 5: Market Intelligence & Ideation
         analyzer = ClusterAnalyzer(storage=active_storage)

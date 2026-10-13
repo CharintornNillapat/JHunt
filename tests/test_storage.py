@@ -1303,6 +1303,129 @@ class TestTursoExporterIntegration(unittest.TestCase):
         self.assertIn("FastAPI", call_kwargs["tech_stack"])
         self.assertIn("Flash Sale Inventory Locking Engine", call_kwargs["spec_markdown"])
 
+    def test_skill_stats_table_created(self):
+        temp_dir = tempfile.mkdtemp(prefix="jhunt_stats_table_")
+        try:
+            db_path = Path(temp_dir) / "stats.db"
+            db = DatabaseManager(db_path=db_path)
+            with db._connection() as conn:
+                tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+                self.assertIn("skill_stats", tables)
+
+                indexes = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='index'")}
+                self.assertIn("idx_skill_stats_category", indexes)
+                self.assertIn("idx_skill_stats_job_count", indexes)
+
+            self.assertIn("idx_skill_stats_category", EXPECTED_INDEXES)
+            self.assertIn("idx_skill_stats_job_count", EXPECTED_INDEXES)
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_refresh_skill_stats_aggregates_counts_and_thb_salaries(self):
+        temp_dir = tempfile.mkdtemp(prefix="jhunt_stats_agg_")
+        try:
+            db_path = Path(temp_dir) / "stats_agg.db"
+            db = DatabaseManager(db_path=db_path)
+
+            # Insert job 1: THB salary 40,000 - 60,000 (midpoint 50,000), skills: Python, PostgreSQL
+            db.save_job({
+                "id": "job_1", "title": "Dev 1", "company": "Co A", "url": "http://1",
+                "min_salary": 40000, "max_salary": 60000, "currency": "THB"
+            })
+            db.save_extracted_skills("job_1", ExtractedJob(
+                job_title="Dev 1", company="Co A", experience_level="Mid-Level",
+                must_have_skills=["Python"], nice_to_have_skills=[],
+                frameworks=[], databases=["PostgreSQL"], cloud_infra=[], tools=[]
+            ))
+
+            # Insert job 2: THB salary 60,000 - 80,000 (midpoint 70,000), skills: Python, Docker
+            db.save_job({
+                "id": "job_2", "title": "Dev 2", "company": "Co B", "url": "http://2",
+                "min_salary": 60000, "max_salary": 80000, "currency": "THB"
+            })
+            db.save_extracted_skills("job_2", ExtractedJob(
+                job_title="Dev 2", company="Co B", experience_level="Senior",
+                must_have_skills=["Python"], nice_to_have_skills=[],
+                frameworks=[], databases=[], cloud_infra=["Docker"], tools=[]
+            ))
+
+            # Insert job 3: USD salary 3,000 - 5,000, skills: Python (should NOT count towards THB salary stats)
+            db.save_job({
+                "id": "job_3", "title": "Dev 3", "company": "Co C", "url": "http://3",
+                "min_salary": 3000, "max_salary": 5000, "currency": "USD"
+            })
+            db.save_extracted_skills("job_3", ExtractedJob(
+                job_title="Dev 3", company="Co C", experience_level="Senior",
+                must_have_skills=["Python"], nice_to_have_skills=[],
+                frameworks=[], databases=[], cloud_infra=[], tools=[]
+            ))
+
+            # Insert job 4: No salary, skills: PostgreSQL
+            db.save_job({
+                "id": "job_4", "title": "Dev 4", "company": "Co D", "url": "http://4",
+                "min_salary": None, "max_salary": None, "currency": "THB"
+            })
+            db.save_extracted_skills("job_4", ExtractedJob(
+                job_title="Dev 4", company="Co D", experience_level="Junior",
+                must_have_skills=[], nice_to_have_skills=[],
+                frameworks=[], databases=["PostgreSQL"], cloud_infra=[], tools=[]
+            ))
+
+            # Insert job 5: Non-Tech job (should be excluded completely)
+            db.save_job({
+                "id": "job_5", "title": "HR", "company": "Co E", "url": "http://5",
+                "min_salary": 20000, "max_salary": 30000, "currency": "THB"
+            })
+            db.save_extracted_skills("job_5", ExtractedJob(
+                job_title="HR", company="Co E", experience_level="Non-Tech",
+                must_have_skills=["Python"], nice_to_have_skills=[],
+                frameworks=[], databases=[], cloud_infra=[], tools=[]
+            ))
+
+            count = db.refresh_skill_stats()
+            self.assertGreaterEqual(count, 3)
+
+            stats = {s["skill"]: s for s in db.get_skill_stats()}
+
+            # Python: 3 tech jobs (job_1, job_2, job_3); 2 THB salaries (job_1: 50k, job_2: 70k) -> avg 60,000
+            self.assertIn("Python", stats)
+            self.assertEqual(stats["Python"]["job_count"], 3)
+            self.assertEqual(stats["Python"]["salary_count"], 2)
+            self.assertEqual(stats["Python"]["avg_salary_thb"], 60000)
+            self.assertEqual(stats["Python"]["category"], "language")
+
+            # PostgreSQL: 2 tech jobs (job_1, job_4); 1 THB salary (job_1: 50k) -> avg 50,000
+            self.assertIn("PostgreSQL", stats)
+            self.assertEqual(stats["PostgreSQL"]["job_count"], 2)
+            self.assertEqual(stats["PostgreSQL"]["salary_count"], 1)
+            self.assertEqual(stats["PostgreSQL"]["avg_salary_thb"], 50000)
+            self.assertEqual(stats["PostgreSQL"]["category"], "database")
+
+            # Docker: 1 tech job (job_2); 1 THB salary (job_2: 70k) -> avg 70,000
+            self.assertIn("Docker", stats)
+            self.assertEqual(stats["Docker"]["job_count"], 1)
+            self.assertEqual(stats["Docker"]["salary_count"], 1)
+            self.assertEqual(stats["Docker"]["avg_salary_thb"], 70000)
+            self.assertEqual(stats["Docker"]["category"], "cloud")
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_refresh_skill_stats_turso_batch(self):
+        mock_client = MagicMock()
+        mock_client.execute.return_value = MagicMock(
+            columns=["job_id", "skill_name", "category", "must_have_skills", "nice_to_have_skills", "frameworks", "databases", "cloud_infra", "tools", "min_salary", "max_salary", "currency"],
+            rows=[
+                ["job_1", "Python", None, '["Python"]', '[]', '[]', '["PostgreSQL"]', '[]', '[]', 50000, 70000, "THB"],
+            ]
+        )
+        turso = TursoClient(client=mock_client)
+        count = turso.refresh_skill_stats()
+        self.assertGreaterEqual(count, 2)
+        mock_client.batch.assert_called()
+        batch_args = mock_client.batch.call_args[0][0]
+        self.assertTrue(any("DELETE FROM skill_stats" in (stmt[0] if isinstance(stmt, (tuple, list)) else stmt) for stmt in batch_args))
+        self.assertTrue(any("INSERT INTO skill_stats" in (stmt[0] if isinstance(stmt, (tuple, list)) else stmt) for stmt in batch_args))
+
 
 if __name__ == "__main__":
     unittest.main()

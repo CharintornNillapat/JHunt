@@ -98,6 +98,52 @@ class TestSubcommandRouting(unittest.TestCase):
         self.assertEqual(code, 0)
         mock_backfill.assert_called_once_with(limit=50, dry_run=False)
 
+    @patch("main.get_storage")
+    @patch("main.StateManager")
+    @patch("main.run_scrapers")
+    @patch("main.process_unprocessed_jobs")
+    @patch("main.ClusterAnalyzer")
+    @patch("main.IdeationEngine")
+    @patch("main.MarkdownExporter")
+    def test_run_full_pipeline_refreshes_skill_stats(
+        self, mock_exporter, mock_engine, mock_analyzer, mock_process, mock_scrapers, mock_state_cls, mock_get_storage
+    ):
+        mock_storage = MagicMock()
+        mock_storage.refresh_skill_stats.return_value = 42
+        mock_get_storage.return_value = mock_storage
+        mock_scrapers.return_value = []
+        mock_process.return_value = 0
+
+        analyzer_inst = MagicMock()
+        analyzer_inst.generate_market_report.return_value = MagicMock(total_jobs_analyzed=0, top_cooccurrences=[])
+        analyzer_inst.get_dominant_stack_for_role.return_value = ["Python"]
+        mock_analyzer.return_value = analyzer_inst
+
+        engine_inst = MagicMock()
+        mock_spec = MagicMock(title="Mock Title")
+        engine_inst.generate_project_spec.return_value = mock_spec
+        mock_engine.return_value = engine_inst
+
+        exporter_inst = MagicMock()
+        exporter_inst.export.return_value = Path("test.md")
+        mock_exporter.return_value = exporter_inst
+
+        state_inst = MagicMock()
+        state_inst.filter_new.return_value = []
+        state_inst.filter_relevant_jobs.return_value = []
+        mock_state_cls.return_value = state_inst
+
+        config = {
+            "keywords": ["python"],
+            "title_filter": ["python"],
+            "gemini_enabled": False,
+            "gemini_api_key": None,
+            "gemini_model": "gemini-3.8-flash",
+            "export_dir": "temp_dir",
+        }
+        results = run_full_pipeline(config=config)
+        mock_storage.refresh_skill_stats.assert_called_once()
+
     @patch("main.get_active_scrapers")
     def test_run_scrapers_configures_per_adapter_limits(self, mock_get_scrapers):
         mock_jobsdb = MagicMock()

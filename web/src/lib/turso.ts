@@ -134,9 +134,74 @@ export async function getMarketAnalytics(): Promise<MarketAnalytics | null> {
   }
 
   try {
-    const [jobsRes, blueprintsRes, skillsRes, compRes] = await Promise.allSettled([
+    const [jobsRes, blueprintsRes, skillStatsRes] = await Promise.allSettled([
       turso.execute("SELECT COUNT(*) AS total FROM jobs"),
       turso.execute("SELECT COUNT(DISTINCT title) AS total FROM generated_projects"),
+      turso.execute(
+        "SELECT skill, category, job_count, salary_count, avg_salary_thb FROM skill_stats ORDER BY job_count DESC"
+      ),
+    ]);
+
+    const totalJobsCount =
+      jobsRes.status === "fulfilled" && jobsRes.value.rows[0]?.total
+        ? Number(jobsRes.value.rows[0].total)
+        : 0;
+
+    const totalBlueprintsCount =
+      blueprintsRes.status === "fulfilled" && blueprintsRes.value.rows[0]?.total
+        ? Number(blueprintsRes.value.rows[0].total)
+        : 0;
+
+    // Fast path: If pre-aggregated skill_stats has data, serve directly without scanning raw skills
+    if (skillStatsRes.status === "fulfilled" && skillStatsRes.value.rows.length > 0) {
+      const statsRows = skillStatsRes.value.rows;
+      let totalSkillMentions = 0;
+      for (const r of statsRows) {
+        totalSkillMentions += Number(r.job_count ?? 0);
+      }
+
+      const partitionCategory = (cat: string): MarketMetricItem[] => {
+        return statsRows
+          .filter((r) => r.category === cat)
+          .map((r) => ({
+            name: String(r.skill ?? ""),
+            count: Number(r.job_count ?? 0),
+            percentage:
+              totalJobsCount > 0 ? Math.round((Number(r.job_count ?? 0) / totalJobsCount) * 100) : 0,
+          }))
+          .sort((a, b) => b.count - a.count)
+          .slice(0, 8);
+      };
+
+      const topCompensatedSkills: CompensatedSkillItem[] = statsRows
+        .filter((r) => Number(r.salary_count ?? 0) >= 1 && Number(r.avg_salary_thb ?? 0) > 0)
+        .map((r) => ({
+          skill: String(r.skill ?? ""),
+          avg_salary: Number(r.avg_salary_thb ?? 0),
+          sample_count: Number(r.salary_count ?? 0),
+        }))
+        .sort((a, b) => b.avg_salary - a.avg_salary)
+        .slice(0, 10);
+
+      console.log(
+        `[Turso] getMarketAnalytics: Loaded pre-aggregated skill_stats with ${statsRows.length} skills (${totalSkillMentions} total mentions across ${totalJobsCount} jobs).`
+      );
+
+      return {
+        totalJobs: totalJobsCount,
+        totalSkills: totalSkillMentions,
+        totalBlueprints: totalBlueprintsCount,
+        languages: partitionCategory("language"),
+        clouds: partitionCategory("cloud"),
+        databases: partitionCategory("database"),
+        frameworks: partitionCategory("framework"),
+        top_compensated_skills: topCompensatedSkills,
+      };
+    }
+
+    // Fallback path: Query raw skills_extracted table if skill_stats is not populated
+    console.warn("[Turso] getMarketAnalytics: skill_stats is empty or unavailable; falling back to raw skills_extracted scan.");
+    const [skillsRes, compRes] = await Promise.allSettled([
       turso.execute(
         "SELECT * FROM skills_extracted WHERE (experience_level IS NULL OR experience_level != 'Non-Tech')"
       ),
@@ -170,16 +235,6 @@ export async function getMarketAnalytics(): Promise<MarketAnalytics | null> {
     if (compRes.status === "rejected") {
       console.warn("[Turso] getMarketAnalytics: Compensation aggregation query rejected:", compRes.reason);
     }
-
-    const totalJobsCount =
-      jobsRes.status === "fulfilled" && jobsRes.value.rows[0]?.total
-        ? Number(jobsRes.value.rows[0].total)
-        : 0;
-
-    const totalBlueprintsCount =
-      blueprintsRes.status === "fulfilled" && blueprintsRes.value.rows[0]?.total
-        ? Number(blueprintsRes.value.rows[0].total)
-        : 0;
 
     let skillsRows =
       skillsRes.status === "fulfilled" ? skillsRes.value.rows : [];

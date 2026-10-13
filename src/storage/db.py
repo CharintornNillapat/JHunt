@@ -430,6 +430,77 @@ class DatabaseManager:
             if count >= min_count
         ]
 
+    def refresh_skill_stats(self) -> int:
+        """
+        Recomputes pre-aggregated skill_stats rollup table in a single atomic transaction.
+        Returns total number of rows populated.
+        """
+        from src.storage.schema import aggregate_skill_stats
+
+        with self._connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT 
+                    s.job_id,
+                    s.skill_name,
+                    s.category,
+                    s.must_have_skills,
+                    s.nice_to_have_skills,
+                    s.frameworks,
+                    s.databases,
+                    s.cloud_infra,
+                    s.tools,
+                    j.min_salary,
+                    j.max_salary,
+                    j.currency
+                FROM skills_extracted s
+                LEFT JOIN jobs j ON s.job_id = j.id
+                WHERE (s.experience_level IS NULL OR s.experience_level != 'Non-Tech')
+            """)
+            raw_rows = [dict(row) for row in cursor.fetchall()]
+            stats = aggregate_skill_stats(raw_rows)
+
+            cursor.execute("DELETE FROM skill_stats;")
+            if stats:
+                cursor.executemany(
+                    """
+                    INSERT INTO skill_stats (skill, category, job_count, salary_count, avg_salary_thb)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    [
+                        (
+                            s["skill"],
+                            s["category"],
+                            s["job_count"],
+                            s["salary_count"],
+                            s["avg_salary_thb"],
+                        )
+                        for s in stats
+                    ],
+                )
+            return len(stats)
+
+    def get_skill_stats(
+        self, category: Optional[str] = None, limit: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Retrieves pre-aggregated skill statistics from skill_stats.
+        """
+        query = "SELECT skill, category, job_count, salary_count, avg_salary_thb, updated_at FROM skill_stats"
+        params: List[Any] = []
+        if category:
+            query += " WHERE category = ?"
+            params.append(category)
+        query += " ORDER BY job_count DESC"
+        if limit is not None and limit > 0:
+            query += " LIMIT ?"
+            params.append(limit)
+
+        with self._connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, params)
+            return [dict(row) for row in cursor.fetchall()]
+
 
     # ── Generated Projects Operations ─────────────────────────────────────────
 

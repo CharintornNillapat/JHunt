@@ -737,6 +737,88 @@ class TursoClient:
             if count >= min_count
         ]
 
+    def refresh_skill_stats(self) -> int:
+        """
+        Recomputes pre-aggregated skill_stats rollup table in Turso LibSQL atomically in one transaction batch.
+        Returns total number of rows populated.
+        """
+        if not self.client:
+            return 0
+
+        from src.storage.schema import aggregate_skill_stats
+
+        try:
+            rs = self.client.execute("""
+                SELECT 
+                    s.job_id,
+                    s.skill_name,
+                    s.category,
+                    s.must_have_skills,
+                    s.nice_to_have_skills,
+                    s.frameworks,
+                    s.databases,
+                    s.cloud_infra,
+                    s.tools,
+                    j.min_salary,
+                    j.max_salary,
+                    j.currency
+                FROM skills_extracted s
+                LEFT JOIN jobs j ON s.job_id = j.id
+                WHERE (s.experience_level IS NULL OR s.experience_level != 'Non-Tech')
+            """)
+            raw_rows = [self._row_to_dict(rs.columns, row) for row in rs.rows]
+            stats = aggregate_skill_stats(raw_rows)
+
+            stmts = [("DELETE FROM skill_stats", [])]
+            for s in stats:
+                stmts.append((
+                    """
+                    INSERT INTO skill_stats (skill, category, job_count, salary_count, avg_salary_thb)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    [
+                        s["skill"],
+                        s["category"],
+                        s["job_count"],
+                        s["salary_count"],
+                        s["avg_salary_thb"],
+                    ],
+                ))
+
+            if hasattr(self.client, "batch"):
+                self.client.batch(stmts)
+            else:
+                for stmt, args in stmts:
+                    self.client.execute(stmt, args)
+            return len(stats)
+        except Exception as e:
+            logger.warning(f"[TursoClient] Failed to refresh skill_stats rollup: {e}")
+            return 0
+
+    def get_skill_stats(
+        self, category: Optional[str] = None, limit: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """Retrieves pre-aggregated skill statistics from Turso LibSQL."""
+        if not self.client:
+            return []
+
+        query = "SELECT skill, category, job_count, salary_count, avg_salary_thb, updated_at FROM skill_stats"
+        params: List[Any] = []
+        if category:
+            query += " WHERE category = ?"
+            params.append(category)
+        query += " ORDER BY job_count DESC"
+        if limit is not None and limit > 0:
+            query += " LIMIT ?"
+            params.append(limit)
+
+        try:
+            rs = self.client.execute(query, params)
+            return [self._row_to_dict(rs.columns, row) for row in rs.rows]
+        except Exception as e:
+            logger.warning(f"[TursoClient] Failed to query skill_stats: {e}")
+            return []
+
     def record_generated_project(
         self,
         title: str,
