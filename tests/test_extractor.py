@@ -346,6 +346,100 @@ class TestGeminiExtractor(unittest.TestCase):
 
         self.assertEqual(results, {})
 
+    def test_is_transient_error_rejects_numbers_containing_500_and_502(self):
+        non_transient_samples = [
+            "Input exceeded 1500 chars",
+            "Salary 50000 THB",
+            "Budget range: 25000 - 35000",
+            "Error occurred at line 5020 in script",
+        ]
+        for msg in non_transient_samples:
+            info = is_transient_error(msg)
+            self.assertFalse(info.is_transient, f"Expected '{msg}' to be non-transient, got {info}")
+
+    def test_is_transient_error_rejects_pydantic_validation_error(self):
+        from pydantic import TypeAdapter, ValidationError
+
+        try:
+            TypeAdapter(int).validate_python("exceeded 1500 items")
+        except ValidationError as ve:
+            info = is_transient_error(ve)
+            self.assertFalse(info.is_transient, f"Expected ValidationError to be non-transient, got {info}")
+
+    def test_is_transient_error_structural_status_codes(self):
+        class MockApiError(Exception):
+            def __init__(self, message, code=None, status=None):
+                super().__init__(message)
+                self.code = code
+                self.status = status
+
+        # Structural transient errors
+        err_503 = MockApiError("Service unavailable", code=503)
+        info_503 = is_transient_error(err_503)
+        self.assertTrue(info_503.is_transient)
+        self.assertTrue(info_503.is_503)
+
+        err_429 = MockApiError("Rate limited", code=429)
+        info_429 = is_transient_error(err_429)
+        self.assertTrue(info_429.is_transient)
+        self.assertTrue(info_429.is_rate_limit)
+
+        err_504 = MockApiError("Timeout", code=504)
+        info_504 = is_transient_error(err_504)
+        self.assertTrue(info_504.is_transient)
+        self.assertTrue(info_504.is_504_or_deadline)
+
+        err_500 = MockApiError("Server error", code=500)
+        self.assertTrue(is_transient_error(err_500).is_transient)
+
+        err_502 = MockApiError("Bad gateway", code=502)
+        self.assertTrue(is_transient_error(err_502).is_transient)
+
+        # Structural status enum strings
+        err_status_unavailable = MockApiError("Unavailable", status="UNAVAILABLE")
+        self.assertTrue(is_transient_error(err_status_unavailable).is_503)
+
+        err_status_exhausted = MockApiError("Exhausted", status="RESOURCE_EXHAUSTED")
+        self.assertTrue(is_transient_error(err_status_exhausted).is_rate_limit)
+
+        err_status_deadline = MockApiError("Deadline", status="DEADLINE_EXCEEDED")
+        self.assertTrue(is_transient_error(err_status_deadline).is_504_or_deadline)
+
+        # Non-transient status codes
+        err_400 = MockApiError("Bad Request", code=400)
+        self.assertFalse(is_transient_error(err_400).is_transient)
+
+        err_404 = MockApiError("Not Found", code=404)
+        self.assertFalse(is_transient_error(err_404).is_transient)
+
+    def test_generate_aborts_immediately_on_validation_error(self):
+        # Return response whose payload fails schema validation with text containing '1500'
+        resp = MagicMock()
+        resp.parsed = None
+        resp.text = json.dumps([{"id": "bad_id_1500", "invalid_field": 1500}])
+        self.mock_client.models.generate_content.return_value = resp
+
+        with patch("time.sleep") as mock_sleep:
+            results = self.extractor.extract_batch([_job(0)])
+
+        self.assertEqual(results, {})
+        # Must NOT retry when payload fails Pydantic schema validation
+        self.assertEqual(self.mock_client.models.generate_content.call_count, 1)
+        self.assertEqual(mock_sleep.call_count, 0)
+
+    def test_generate_respects_overall_wall_clock_deadline(self):
+        self.mock_client.models.generate_content.side_effect = Exception("503 Service Unavailable")
+
+        # Simulate monotonic clock: start at 0, record call at 1.0, then elapsed check jumps to 80.0s (past deadline)
+        times = iter([0.0, 1.0, 80.0])
+        with patch("time.monotonic", side_effect=lambda: next(times, 100.0)), patch("time.sleep") as mock_sleep:
+            results = self.extractor.extract_batch([_job(0)])
+
+        self.assertEqual(results, {})
+        # Should abort after 1 call because 80.0s exceeds the overall deadline
+        self.assertEqual(self.mock_client.models.generate_content.call_count, 1)
+        self.assertEqual(mock_sleep.call_count, 0)
+
     def test_extract_batch_503_fallback_to_gemini_2_5_flash(self):
         self.mock_client.models.generate_content.side_effect = [
             Exception("503 UNAVAILABLE: Model is currently experiencing high demand"),

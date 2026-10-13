@@ -107,7 +107,7 @@ Elevate `JHunt` from a keyword scraper and Telegram alerter into a production-gr
 #### Phase 1: Reliability, Data Quality & LLM Pipeline (P1)
 - [x] **Task 1.1: Salary Parser Precision & Noise Rejection** (Keyword window + local currency/period).
 - [x] **Task 1.2: Historical Salary Backfill** (Query unparsed jobs, parse with parse_salary, batch-update Turso/SQLite).
-- [ ] **Task 1.3: Structural Error Classification** (Stop retrying Pydantic errors on 500/1500).
+- [x] **Task 1.3: Structural Error Classification** (Stop retrying Pydantic errors on 500/1500).
 - [ ] **Task 1.4: Schema & Index Reconciliation** (Align role index on generated_projects).
 - [ ] **Task 1.5: Blueprint Logic & Exporter Fixes** (Interleaving tests, strip '..').
 

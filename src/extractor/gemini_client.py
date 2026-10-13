@@ -15,7 +15,7 @@ from typing import Any, Optional, Tuple, TypeVar
 
 from google import genai
 from google.genai import types
-from pydantic import TypeAdapter
+from pydantic import TypeAdapter, ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +28,7 @@ DEFAULT_RATE_LIMIT_DELAY = 4.0  # Safe for 15 RPM free tier
 MAX_RETRIES = 4
 INITIAL_BACKOFF = 2.0
 REQUEST_TIMEOUT_MS = 30_000
+DEFAULT_OVERALL_DEADLINE = 75.0  # seconds
 CIRCUIT_BREAK_AFTER = 3  # consecutive calls that exhausted every retry
 R = TypeVar("R")
 
@@ -87,10 +88,21 @@ def is_deadline_or_timeout_error(err: Any) -> bool:
     """
     Checks if an error indicates a 504 Gateway Timeout or DEADLINE_EXCEEDED.
     """
+    code = getattr(err, "code", None) or getattr(err, "status_code", None)
+    status = getattr(err, "status", None) or getattr(err, "status_code_name", None)
+    if status is not None and str(status).upper() == "DEADLINE_EXCEEDED":
+        return True
+    if code is not None:
+        try:
+            if int(code) == 504:
+                return True
+        except (ValueError, TypeError):
+            pass
+
     err_str = str(err)
     err_lower = err_str.lower()
     return (
-        "504" in err_str
+        bool(re.search(r"\b504\b", err_str))
         or "gateway timeout" in err_lower
         or "gateway_timeout" in err_lower
         or "deadline_exceeded" in err_lower
@@ -104,19 +116,43 @@ def is_transient_error(err: Any) -> TransientErrorInfo:
     Treats HTTP 504, 502, 500, DEADLINE_EXCEEDED, 429, and 503 as transient.
     Returns TransientErrorInfo(is_transient, is_503, is_rate_limit, is_504_or_deadline).
     """
+    if isinstance(err, ValidationError) or "validationerror" in type(err).__name__.lower():
+        return TransientErrorInfo(False, False, False, False)
+
+    # 1. Structural inspection of status code / status enum on error objects
+    code = getattr(err, "code", None) or getattr(err, "status_code", None)
+    status = getattr(err, "status", None) or getattr(err, "status_code_name", None)
+    status_upper = str(status).upper() if status is not None else None
+
+    code_int = None
+    if code is not None:
+        try:
+            code_int = int(code)
+        except (ValueError, TypeError):
+            code_int = None
+
+    if code_int is not None or status_upper is not None:
+        is_503 = (code_int == 503) or (status_upper in ("UNAVAILABLE",))
+        is_rate_limit = (code_int == 429) or (status_upper in ("RESOURCE_EXHAUSTED",))
+        is_504_or_deadline = (code_int == 504) or (status_upper in ("DEADLINE_EXCEEDED",))
+        is_server_error = (code_int in (500, 502)) or (status_upper in ("INTERNAL",))
+        is_transient = is_503 or is_rate_limit or is_504_or_deadline or is_server_error
+        return TransientErrorInfo(is_transient, is_503, is_rate_limit, is_504_or_deadline)
+
+    # 2. String/regex matching with word boundaries
     err_str = str(err)
     err_lower = err_str.lower()
-    is_503 = "503" in err_str or "service unavailable" in err_lower or "unavailable" in err_lower
+
+    is_503 = bool(re.search(r"\b503\b", err_str)) or "service unavailable" in err_lower or "unavailable" in err_lower
     is_rate_limit = (
-        "429" in err_str
+        bool(re.search(r"\b429\b", err_str))
         or "resource_exhausted" in err_lower
         or "rate limit" in err_lower
         or "quota" in err_lower
     )
-    is_504_or_deadline = is_deadline_or_timeout_error(err_str)
+    is_504_or_deadline = is_deadline_or_timeout_error(err)
     is_server_error = (
-        "500" in err_str
-        or "502" in err_str
+        bool(re.search(r"\b(500|502)\b", err_str))
         or "bad gateway" in err_lower
         or "bad_gateway" in err_lower
         or "internal server error" in err_lower
@@ -124,8 +160,8 @@ def is_transient_error(err: Any) -> TransientErrorInfo:
     )
     is_timeout = (
         is_504_or_deadline
-        or "timeout" in err_lower
         or "timed out" in err_lower
+        or bool(re.search(r"\btimeout\b", err_lower))
     )
     is_transient = is_503 or is_rate_limit or is_504_or_deadline or is_server_error or is_timeout
     return TransientErrorInfo(is_transient, is_503, is_rate_limit, is_504_or_deadline)
@@ -221,27 +257,17 @@ class BaseGeminiService:
 
         model, backoff, n503 = self.model, INITIAL_BACKOFF, 0
         tag = type(self).__name__
+        start_time = time.monotonic()
         for attempt in range(1, MAX_RETRIES + 1):
             self._throttle()
             self._record_call()
             try:
                 resp = self.client.models.generate_content(model=model, contents=contents, config=config)
-                raw = getattr(resp, "parsed", None)
-                if raw is not None:
-                    parsed = adapter.validate_python(raw)
-                elif getattr(resp, "text", None):
-                    parsed = adapter.validate_json(resp.text)
-                else:
-                    parsed = None
-                if parsed is not None:
-                    self._consecutive_failures = 0
-                    return parsed
-                logger.warning(f"[{tag}] Attempt {attempt}: empty response.")
             except Exception as e:
                 err = str(e)
                 if is_daily_quota_exhausted(err):
                     raise DailyQuotaExhaustedError(err) from e
-                transient_info = is_transient_error(err)
+                transient_info = is_transient_error(e)
                 if not transient_info.is_transient:
                     logger.error(f"[{tag}] Non-transient error: {err[:200]}")
                     break
@@ -256,9 +282,36 @@ class BaseGeminiService:
                         model = FALLBACK_MODEL
                 if attempt < MAX_RETRIES:
                     sleep_s, backoff = calculate_backoff_sleep(is_503, n503, backoff)
+                    elapsed = time.monotonic() - start_time
+                    if elapsed + sleep_s >= DEFAULT_OVERALL_DEADLINE:
+                        logger.warning(
+                            f"[{tag}] Overall deadline reached ({elapsed:.1f}s + {sleep_s:.1f}s >= {DEFAULT_OVERALL_DEADLINE}s); aborting retries."
+                        )
+                        break
                     logger.warning(
                         f"[{tag}] Transient error ({err[:120]}); retry {attempt}/{MAX_RETRIES} in {sleep_s:.1f}s on {model}."
                     )
                     time.sleep(sleep_s)
+                continue
+
+            # Parsing & Validation (Non-transient failures abort immediately)
+            try:
+                raw = getattr(resp, "parsed", None)
+                if raw is not None:
+                    parsed = adapter.validate_python(raw)
+                elif getattr(resp, "text", None):
+                    parsed = adapter.validate_json(resp.text)
+                else:
+                    parsed = None
+                if parsed is not None:
+                    self._consecutive_failures = 0
+                    return parsed
+                logger.warning(f"[{tag}] Attempt {attempt}: empty response.")
+            except ValidationError as ve:
+                logger.error(f"[{tag}] Schema validation error (non-transient): {ve}")
+                break
+            except Exception as pe:
+                logger.error(f"[{tag}] Response parsing error (non-transient): {pe}")
+                break
         self._consecutive_failures += 1
         return None

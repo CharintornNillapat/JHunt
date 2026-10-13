@@ -1,63 +1,44 @@
-# Build Report: Task 1.2 — One-Time Historical Salary Backfill
+# Build Report: Task 1.3 — Structural Error Classification & Gemini Quota Preservation
 
-**Task:** 1.2  
-**Spec Reference:** `workflow/stages/01_spec/output/task-1.2-spec.md`  
-**Test Suite:** 178 passed (`uv run python -m unittest discover tests`)
+**Task:** 1.3  
+**Spec Reference:** `workflow/stages/01_spec/output/task-1.3-spec.md`  
+**Test Suite:** 183 passed (`uv run python -m unittest discover tests`)
 
 ---
 
 ## Changes Implemented
 
-1. **`src/storage/db.py` (Local SQLite Engine)**:
-   - Implemented `get_unparsed_salary_jobs(limit: Optional[int] = None) -> List[Dict[str, Any]]`: Queries `jobs` where `min_salary IS NULL AND max_salary IS NULL` with non-empty `salary` or `raw_content`, ordered by `created_at DESC`.
-   - Implemented `update_job_salaries_batch(updates: List[Dict[str, Any]]) -> int`: Parameterized batch `UPDATE jobs SET min_salary = ?, max_salary = ?, currency = ? WHERE id = ?`.
+1. **`src/extractor/gemini_client.py` (Structural Error Classification & Resilience)**:
+   - Imported `ValidationError` from `pydantic`.
+   - Defined `DEFAULT_OVERALL_DEADLINE = 75.0` (seconds).
+   - Updated `is_deadline_or_timeout_error(err)` to inspect `.code == 504` and `.status == 'DEADLINE_EXCEEDED'` before word-boundary regex fallback `\b504\b`.
+   - Updated `is_transient_error(err)`:
+     - Immediately returns `TransientErrorInfo(False, False, False, False)` if `err` is an instance of `ValidationError` or contains `ValidationError`.
+     - Structurally inspects `.code` / `.status_code` (`503`, `429`, `504`, `500`, `502`) and `.status` / `.status_code_name` (`UNAVAILABLE`, `RESOURCE_EXHAUSTED`, `DEADLINE_EXCEEDED`, `INTERNAL`).
+     - Uses word-boundary regex patterns (`\b500\b`, `\b502\b`, `\b503\b`, `\b429\b`, `\b504\b`) so numbers like `1500`, `25000`, `50000`, and `5020` are never misclassified as server error codes.
+   - Updated `BaseGeminiService._generate()`:
+     - Enforces overall wall-clock deadline: tracks `start_time = time.monotonic()` and breaks retry loop if `elapsed + sleep_s >= DEFAULT_OVERALL_DEADLINE`.
+     - Passes exception object `e` directly to `is_transient_error(e)` to preserve object attributes (`.code`, `.status`).
+     - Separated response parsing/validation into a dedicated `try ... except ValidationError: ... except Exception:` block outside API error handling.
+     - Immediately aborts on `ValidationError` without burning subsequent retries against the free-tier daily quota.
 
-2. **`src/storage/turso_client.py` (Cloud LibSQL Engine)**:
-   - Implemented `get_unparsed_salary_jobs(limit: Optional[int] = None) -> List[Dict[str, Any]]`: Queries Turso client with parameterized query and unpacks `raw_content` into standardized job dicts.
-   - Implemented `update_job_salaries_batch(updates: List[Dict[str, Any]]) -> int`: Parameterized batch update executed via `_run_batch`.
-
-3. **`src/extractor/salary_backfill.py` (Backfill Engine)**:
-   - Implemented `backfill_salaries(storage, limit, dry_run)`:
-     - Fetches candidate unparsed jobs from active storage.
-     - Parses `salary` and `description` (from `raw_content`) via deterministic `parse_salary()`.
-     - In `--apply` mode (`dry_run=False`), writes batch updates to storage.
-     - Tracks metrics: candidate count, newly parsed count, applied count, and currency frequency.
-     - Wrapped execution in `try ... finally:` ensuring caller or locally owned storage is closed cleanly.
-
-4. **`scripts/backfill_salaries.py` (Standalone Backfill Tool)**:
-   - Standalone CLI runner with `--dry-run` (default), `--apply`, and `--limit <N>`.
-   - Reconfigures stdout for UTF-8 on Windows and prints summary table.
-   - Wrapped execution in `try ... finally:` to invoke `if hasattr(storage, "close"): storage.close()`, resolving open `aiohttp` session/connector leak.
-
-5. **`main.py` (CLI Subcommand)**:
-   - Registered `backfill-salaries` subcommand with `--dry-run` and `--apply` mutually exclusive options and `--limit`.
-   - Implemented `run_backfill_pipeline` routing to backfill engine.
-   - Wrapped execution in `try ... finally:` to invoke `if hasattr(storage, "close"): storage.close()`, resolving open `aiohttp` session/connector leak.
-
-6. **`docs/contexts/task-ledger.md`**:
-   - Marked Task 1.2 complete under Phase 1.
+2. **`docs/contexts/task-ledger.md`**:
+   - Marked Task 1.3 complete under Phase 1.
 
 ---
 
 ## Tests Added & Verified
 
-- **`tests/test_storage.py`**:
-  - `test_get_unparsed_salary_jobs`: Asserts retrieval of unparsed jobs with salary or raw_content, excluding already-parsed records.
-  - `test_update_job_salaries_batch`: Asserts parameterized batch update of `min_salary`, `max_salary`, `currency`.
-  - `test_turso_get_unparsed_salary_jobs_with_mock`: Asserts mock Turso execute call with parameterized SQL and unpacked fields.
-  - `test_turso_update_job_salaries_batch_mock`: Asserts batch updates executed with parameterized statements.
-- **`tests/test_cli.py`**:
-  - `test_backfill_salaries_subcommand_args`: Verifies `--dry-run`, `--apply`, and `--limit` flag parsing.
-  - `test_main_routes_backfill_salaries`: Verifies `main.py` subcommand routing.
-  - `test_backfill_salaries_dry_run_leaves_db_unchanged`: Asserts dry-run parses candidates while leaving database rows `NULL`.
-  - `test_backfill_salaries_apply_persists_parsed_values`: Asserts apply mode persists parsed values to SQLite.
-  - `test_standalone_script_backfill_salaries`: Asserts `scripts/backfill_salaries.py` runs cleanly in both dry-run and apply modes.
-  - `test_run_backfill_pipeline_closes_storage_in_finally`: Verifies `main.py:run_backfill_pipeline` invokes `storage.close()` upon normal exit and exceptions.
-  - `test_scripts_backfill_salaries_closes_storage_in_finally`: Verifies `scripts/backfill_salaries.py:main` invokes `storage.close()` upon normal exit and exceptions.
+- **`tests/test_extractor.py`**:
+  - `test_is_transient_error_rejects_numbers_containing_500_and_502`: Asserts numbers like `1500`, `50000`, `25000`, and `5020` evaluate to `is_transient=False`.
+  - `test_is_transient_error_rejects_pydantic_validation_error`: Asserts real `pydantic.ValidationError` containing numbers evaluates to `is_transient=False`.
+  - `test_is_transient_error_structural_status_codes`: Asserts structural status codes (`503`, `429`, `504`, `500`, `502`) and status enums (`UNAVAILABLE`, `RESOURCE_EXHAUSTED`, `DEADLINE_EXCEEDED`) evaluate correctly, while `400` and `404` evaluate to `False`.
+  - `test_generate_aborts_immediately_on_validation_error`: Asserts `_generate` does not retry when response payload fails Pydantic validation (`call_count == 1`, `sleep.call_count == 0`).
+  - `test_generate_respects_overall_wall_clock_deadline`: Asserts `_generate` aborts retries when cumulative time exceeds `DEFAULT_OVERALL_DEADLINE`.
 
 ---
 
 ## Verification Status
 
-- **Hermetic Unit Tests**: 178 passed, 0 failures, 0 errors.
-- **Production Execution**: Live Turso database run has NOT been executed (per `AGENTS.md` policy; human must run `uv run python main.py backfill-salaries --dry-run` followed by `--apply`).
+- **Hermetic Unit Tests**: 183 passed, 0 failures, 0 errors.
+- **Production Touch Points**: None (zero writes to Turso, zero Telegram calls, zero Gemini network calls).

@@ -1,14 +1,14 @@
-# Review: Task 1.2 — One-Time Historical Salary Backfill
+# Review: Task 1.3 — Structural Error Classification & Gemini Quota Preservation
 
-Task: 1.2
+Task: 1.3
 Verdict: PASS
-Tests: 178 passed (run by reviewer)
+Tests: 183 passed (run by reviewer)
 
 Blocking:
 None
 
 Non-blocking:
-- Live Turso index warning: `[WARNING] [TursoClient] Batch index creation failed (SQL_INPUT_ERROR: no such column: target_role)`. This is a known pre-existing schema difference documented in AGENTS.md and handled defensively as a non-fatal warning by `TursoClient.init_schema()`. It will be permanently resolved in Task 1.4.
+None
 
 Rule candidates:
 None
