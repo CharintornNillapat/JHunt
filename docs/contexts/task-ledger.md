@@ -128,6 +128,7 @@ Elevate `JHunt` from a keyword scraper and Telegram alerter into a production-gr
 #### Phase 4: Architecture, Pipeline Hardening & Solo Depth (P4)
 - [x] **Task 4.1: Blueprint Provenance & Source Attribution** (`source`/`provenance` tracking for LLM vs offline fallback in schema, storage, generator, and web badges).
 - [x] **Task 4.2: Actionable Solo Blueprint Schema Depth** (`acceptance_tests`, `walking_skeleton`, and `out_of_scope` in schemas, ideation prompt, fallback archetypes, exporter, and dark-themed checklist UI).
+- [x] **Task 4.3: Deterministic Dependency Lockfile via uv pip compile** (Universal lockfile `requirements.lock` compiled with `--universal`, `AGENTS.md` setup commands updated, hermetic test suite passing).
 
 ---
 
