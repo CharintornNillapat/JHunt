@@ -1,10 +1,27 @@
 export default function AnalyticsSkeleton() {
   return (
-    <div className="space-y-8" aria-busy="true" aria-label="Loading analytics charts">
+    <div className="space-y-6" aria-busy="true" aria-label="Loading analytics charts">
+      {/* Category Filter & Export Toolbar Skeleton */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-2 sm:p-2.5 rounded-2xl bg-zinc-950/70 border border-white/[0.08] animate-pulse">
+        <div className="flex items-center gap-1.5 overflow-x-auto py-0.5">
+          {[100, 92, 112, 118, 136].map((w, idx) => (
+            <div
+              key={idx}
+              className="h-11 rounded-xl bg-zinc-900/80 border border-white/[0.05] shrink-0"
+              style={{ width: `${w}px` }}
+            />
+          ))}
+        </div>
+        <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+          <div className="h-11 w-28 rounded-xl bg-zinc-900/80 border border-white/[0.05]" />
+          <div className="h-11 w-28 rounded-xl bg-zinc-900/80 border border-white/[0.05]" />
+        </div>
+      </div>
+
       {/* 2-Column Analytics Charts Skeleton */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Skeleton 1: Bar Chart */}
-        <div className="border border-white/[0.06] bg-zinc-950/40 rounded-xl animate-pulse min-h-[360px] p-6 flex flex-col justify-between">
+        <div className="border border-white/[0.07] bg-[#0c0d12] rounded-xl animate-pulse min-h-[360px] p-6 flex flex-col justify-between">
           <div className="flex items-center justify-between pb-3 border-b border-white/[0.06]">
             <div className="flex items-center gap-2.5">
               <div className="h-4 w-4 rounded bg-cyan-500/20" />
@@ -27,7 +44,7 @@ export default function AnalyticsSkeleton() {
         </div>
 
         {/* Skeleton 2: Pie / Donut Chart */}
-        <div className="border border-white/[0.06] bg-zinc-950/40 rounded-xl animate-pulse min-h-[360px] p-6 flex flex-col justify-between">
+        <div className="border border-white/[0.07] bg-[#0c0d12] rounded-xl animate-pulse min-h-[360px] p-6 flex flex-col justify-between">
           <div className="flex items-center justify-between pb-3 border-b border-white/[0.06]">
             <div className="flex items-center gap-2.5">
               <div className="h-4 w-4 rounded bg-indigo-500/20" />
@@ -52,7 +69,7 @@ export default function AnalyticsSkeleton() {
       </div>
 
       {/* Top Compensated Skills Skeleton */}
-      <div className="border border-white/[0.06] bg-zinc-950/40 rounded-xl animate-pulse min-h-[300px] p-6 flex flex-col justify-between">
+      <div className="border border-white/[0.07] bg-[#0c0d12] rounded-xl animate-pulse min-h-[360px] p-6 flex flex-col justify-between">
         <div className="flex items-center justify-between pb-3 border-b border-white/[0.06]">
           <div className="flex items-center gap-2.5">
             <div className="h-4 w-4 rounded bg-cyan-500/20" />
@@ -60,7 +77,7 @@ export default function AnalyticsSkeleton() {
           </div>
           <div className="h-3 w-28 rounded bg-zinc-900" />
         </div>
-        <div className="h-48 w-full flex flex-col justify-around py-2">
+        <div className="h-44 w-full flex flex-col justify-around py-2">
           {[90, 75, 65, 50, 40].map((width, idx) => (
             <div key={idx} className="flex items-center gap-4">
               <div className="h-3 w-20 rounded bg-zinc-800/60" />
@@ -71,12 +88,26 @@ export default function AnalyticsSkeleton() {
             </div>
           ))}
         </div>
+
+        {/* Tabular Benchmark Breakdown Skeleton */}
+        <div className="pt-4 border-t border-white/[0.06] space-y-2">
+          <div className="h-3 w-36 rounded bg-zinc-900" />
+          <div className="divide-y divide-white/[0.04]">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="grid grid-cols-12 py-2 items-center">
+                <div className="col-span-5 h-3 w-24 rounded bg-zinc-800/60" />
+                <div className="col-span-4 h-3 w-20 rounded bg-cyan-500/20 justify-self-end" />
+                <div className="col-span-3 h-3 w-10 rounded bg-zinc-900 justify-self-end" />
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
 
       {/* Database & Framework Grid Skeleton */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Persistence & Data Engines Skeleton */}
-        <div className="border border-white/[0.06] bg-zinc-950/40 rounded-xl animate-pulse p-6 space-y-4 min-h-[260px]">
+        <div className="border border-white/[0.07] bg-[#0c0d12] rounded-xl animate-pulse p-6 space-y-4 min-h-[260px]">
           <div className="flex items-center justify-between pb-3 border-b border-white/[0.06]">
             <div className="flex items-center gap-2">
               <div className="h-4 w-4 rounded bg-sky-500/20" />
@@ -103,7 +134,7 @@ export default function AnalyticsSkeleton() {
         </div>
 
         {/* Application Frameworks Skeleton */}
-        <div className="border border-white/[0.06] bg-zinc-950/40 rounded-xl animate-pulse p-6 space-y-4 min-h-[260px]">
+        <div className="border border-white/[0.07] bg-[#0c0d12] rounded-xl animate-pulse p-6 space-y-4 min-h-[260px]">
           <div className="flex items-center justify-between pb-3 border-b border-white/[0.06]">
             <div className="flex items-center gap-2">
               <div className="h-4 w-4 rounded bg-emerald-500/20" />
@@ -136,7 +167,7 @@ export default function AnalyticsSkeleton() {
 export function SkillGapSkeleton() {
   return (
     <div
-      className="border border-white/[0.08] bg-zinc-950/60 rounded-2xl animate-pulse p-6 sm:p-8 min-h-[460px] flex flex-col justify-between"
+      className="border border-white/[0.08] bg-[#0c0d12] rounded-2xl animate-pulse p-6 sm:p-8 min-h-[460px] flex flex-col justify-between"
       aria-busy="true"
       aria-label="Loading skill gap matcher"
     >
@@ -146,25 +177,25 @@ export function SkillGapSkeleton() {
           <div className="h-6 w-72 rounded bg-zinc-800/80" />
           <div className="h-3 w-96 rounded bg-zinc-900" />
         </div>
-        <div className="h-7 w-24 rounded bg-zinc-900" />
+        <div className="h-11 w-28 rounded-lg bg-zinc-900" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 py-6">
         <div className="lg:col-span-7 space-y-4">
           <div className="h-3 w-40 rounded bg-zinc-800/60" />
-          <div className="h-10 w-full rounded-xl bg-zinc-900/80" />
+          <div className="h-11 w-full rounded-xl bg-zinc-900/80" />
           <div className="flex gap-2">
             {[24, 20, 28].map((w, i) => (
               <div
                 key={i}
-                className="h-7 rounded-lg bg-cyan-950/40"
+                className="h-8 rounded-lg bg-cyan-950/40"
                 style={{ width: `${w * 4}px` }}
               />
             ))}
           </div>
         </div>
 
-        <div className="lg:col-span-5 bg-zinc-900/40 border border-white/[0.06] rounded-xl p-5 flex items-center gap-6">
+        <div className="lg:col-span-5 bg-zinc-900/30 border border-white/[0.05] rounded-xl p-5 flex items-center gap-6">
           <div className="h-24 w-24 rounded-full border-8 border-zinc-800 shrink-0" />
           <div className="space-y-2 w-full">
             <div className="h-6 w-32 rounded bg-zinc-800/80" />
@@ -175,8 +206,8 @@ export function SkillGapSkeleton() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pt-6 border-t border-white/[0.06]">
-        <div className="h-28 rounded-xl bg-zinc-900/50" />
-        <div className="h-28 rounded-xl bg-zinc-900/50" />
+        <div className="h-28 rounded-xl bg-zinc-900/40 border border-white/[0.05]" />
+        <div className="h-28 rounded-xl bg-zinc-900/40 border border-white/[0.05]" />
       </div>
     </div>
   );

@@ -36,7 +36,23 @@ export default function BlueprintCatalog({ initialProjects }: BlueprintCatalogPr
   const [selectedCategory, setSelectedCategory] = useState<RoleCategory>("ALL");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTech, setSelectedTech] = useState<string | null>(null);
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
+
+  const categoryCounts = useMemo(() => {
+    return {
+      ALL: initialProjects.length,
+      BACKEND: initialProjects.filter((p) => p.role.toLowerCase().includes("backend")).length,
+      DATA_AI: initialProjects.filter((p) => {
+        const r = p.role.toLowerCase();
+        return r.includes("data") || r.includes("ai") || r.includes("ml") || r.includes("analyst");
+      }).length,
+      FULLSTACK: initialProjects.filter((p) => {
+        const r = p.role.toLowerCase();
+        return r.includes("full") || r.includes("front") || r.includes("web");
+      }).length,
+    };
+  }, [initialProjects]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -115,30 +131,56 @@ export default function BlueprintCatalog({ initialProjects }: BlueprintCatalogPr
   }, [initialProjects, selectedCategory, searchQuery, selectedTech]);
 
   return (
-    <div className="w-full space-y-8">
+    <div className="w-full space-y-6">
+      {/* Screen Reader Announcement for Filter Changes */}
+      <div className="sr-only" aria-live="polite">
+        Showing {filteredProjects.length} of {initialProjects.length} architecture blueprints
+      </div>
+
+      {/* Telemetry Counter */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 select-none">
+        <div className="flex items-center gap-2 text-xs font-mono text-zinc-400">
+          <span className="h-1.5 w-1.5 rounded-full bg-cyan-400" />
+          <span>Showing</span>
+          <span className="font-semibold text-zinc-200 tabular-nums">{filteredProjects.length}</span>
+          <span>of</span>
+          <span className="tabular-nums">{initialProjects.length}</span>
+          <span>blueprints</span>
+        </div>
+      </div>
+
       {/* Controls Bar: Role Tabs & Instant Search */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-white/[0.07]">
         {/* Animated Filter Tabs */}
-        <div className="flex items-center gap-1.5 p-1 rounded-lg bg-zinc-900 border border-white/[0.08] overflow-x-auto">
+        <div className="flex items-center gap-1.5 p-1 rounded-lg bg-zinc-900 border border-white/[0.08] overflow-x-auto no-scrollbar">
           {CATEGORIES.map((tab) => {
             const isActive = selectedCategory === tab.id;
+            const count = categoryCounts[tab.id];
             return (
               <button
                 key={tab.id}
                 onClick={() => setSelectedCategory(tab.id)}
                 className={cn(
-                  "relative px-3.5 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition-colors duration-200",
+                  "relative px-3 sm:px-3.5 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition-all duration-150 active:scale-95 flex items-center gap-1.5",
                   isActive ? "text-cyan-300" : "text-zinc-400 hover:text-zinc-200"
                 )}
               >
                 {isActive && (
                   <motion.span
                     layoutId="activeCategoryPill"
-                    className="absolute inset-0 rounded-md bg-cyan-950/60 border border-cyan-500/30"
-                    transition={{ type: "spring", stiffness: 260, damping: 25 }}
+                    className="absolute inset-0 rounded-md bg-cyan-950/60 border border-cyan-500/30 shadow-sm"
+                    transition={{ type: "spring", stiffness: 380, damping: 28 }}
                   />
                 )}
                 <span className="relative z-10">{tab.label}</span>
+                <span
+                  className={cn(
+                    "relative z-10 font-mono text-[10px] tabular-nums transition-colors",
+                    isActive ? "text-cyan-400" : "text-zinc-500"
+                  )}
+                >
+                  ({count})
+                </span>
               </button>
             );
           })}
@@ -147,29 +189,41 @@ export default function BlueprintCatalog({ initialProjects }: BlueprintCatalogPr
         {/* Search & Active Tech Filter */}
         <div className="flex flex-wrap items-center gap-2">
           {selectedTech && (
-            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-cyan-950/80 border border-cyan-500/40 text-cyan-300 text-xs font-mono">
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-cyan-950/80 border border-cyan-500/40 text-cyan-300 text-xs font-mono shadow-sm">
               <span>Tech: {selectedTech}</span>
               <button
                 type="button"
                 onClick={() => setSelectedTech(null)}
                 aria-label={`Clear ${selectedTech} filter`}
-                className="text-cyan-400 hover:text-white p-0.5 rounded focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cyan-400"
+                className="text-cyan-400 hover:text-white p-0.5 rounded active:scale-90 transition-transform focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cyan-400"
               >
                 <X className="h-3 w-3" />
               </button>
             </div>
           )}
           <div className="relative min-w-[240px] md:w-72">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-500 pointer-events-none" />
+            <Search
+              className={cn(
+                "absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 transition-colors duration-150 pointer-events-none",
+                isSearchFocused ? "text-cyan-400" : "text-zinc-500"
+              )}
+            />
             <input
               ref={searchInputRef}
               type="text"
               value={searchQuery}
+              onFocus={() => setIsSearchFocused(true)}
+              onBlur={() => setIsSearchFocused(false)}
               onChange={(e) => setSearchQuery(e.target.value)}
               aria-label="Filter by tech, domain, or role"
               aria-keyshortcuts="/"
               placeholder="Filter by tech, domain, or role..."
-              className="w-full bg-zinc-900/60 border border-white/[0.08] focus:border-cyan-500/50 rounded-lg pl-9 pr-10 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-500 focus:outline-none transition-all"
+              className={cn(
+                "w-full bg-zinc-900/80 border rounded-lg pl-9 pr-10 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-500 transition-all duration-150 focus:outline-none min-h-[36px]",
+                isSearchFocused
+                  ? "border-cyan-500/60 ring-2 ring-cyan-500/20 shadow-lg shadow-cyan-950/30 bg-zinc-900"
+                  : "border-white/[0.08] hover:border-white/[0.14]"
+              )}
             />
             {searchQuery ? (
               <button
@@ -179,7 +233,7 @@ export default function BlueprintCatalog({ initialProjects }: BlueprintCatalogPr
                   searchInputRef.current?.focus();
                 }}
                 aria-label="Clear search input"
-                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-white rounded focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cyan-400"
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-white rounded-md hover:bg-zinc-800 active:scale-90 transition-all focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cyan-400 min-h-[28px] min-w-[28px] flex items-center justify-center"
               >
                 <X className="h-3 w-3" />
               </button>
@@ -193,37 +247,55 @@ export default function BlueprintCatalog({ initialProjects }: BlueprintCatalogPr
       </div>
 
       {/* Catalog Grid */}
-      <AnimatePresence mode="popLayout">
-        {filteredProjects.length === 0 ? (
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
-            className="flex flex-col items-center justify-center p-16 rounded-xl border border-dashed border-white/[0.08] bg-zinc-950/40 text-center"
-          >
-            <div className="h-10 w-10 rounded-full bg-zinc-900 flex items-center justify-center mb-3 text-zinc-500">
-              <SlidersHorizontal className="h-5 w-5" />
-            </div>
-            <h3 className="text-sm font-semibold text-zinc-300 mb-1">
-              No matching architecture blueprints
-            </h3>
-            <p className="text-xs text-zinc-500 max-w-sm mb-4">
-              Try adjusting your role category filter or search query.
-            </p>
-            {(selectedCategory !== "ALL" || searchQuery || selectedTech) && (
-              <button
-                onClick={() => {
-                  setSelectedCategory("ALL");
-                  setSearchQuery("");
-                  setSelectedTech(null);
-                }}
-                className="text-xs font-mono text-cyan-400 hover:underline min-h-[44px] inline-flex items-center"
-              >
-                Clear all filters &rarr;
-              </button>
-            )}
-          </motion.div>
-        ) : (
+      <div className="min-h-[480px]">
+        <AnimatePresence mode="popLayout">
+          {filteredProjects.length === 0 ? (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              className="flex flex-col items-center justify-center p-12 sm:p-16 rounded-xl border border-dashed border-white/[0.08] bg-zinc-950/40 text-center"
+            >
+              <div className="h-10 w-10 rounded-full bg-zinc-900 border border-white/[0.08] flex items-center justify-center mb-3 text-cyan-400">
+                <SlidersHorizontal className="h-5 w-5" />
+              </div>
+              <h3 className="text-sm font-semibold text-zinc-200 mb-1">
+                No matching architecture blueprints
+              </h3>
+              <p className="text-xs text-zinc-400 max-w-sm mb-6 leading-relaxed">
+                No blueprints match your current criteria. Reset your filters or pick a common production technology below.
+              </p>
+              <div className="flex flex-wrap items-center justify-center gap-2 mb-6">
+                <span className="text-[11px] font-mono text-zinc-500">Suggestions:</span>
+                {["Python", "FastAPI", "PostgreSQL", "Docker"].map((tech) => (
+                  <button
+                    key={tech}
+                    onClick={() => {
+                      setSelectedCategory("ALL");
+                      setSearchQuery("");
+                      setSelectedTech(tech);
+                    }}
+                    className="font-mono text-[11px] px-2.5 py-1 rounded bg-zinc-900 hover:bg-zinc-800 border border-white/[0.08] hover:border-cyan-500/40 text-zinc-300 hover:text-cyan-300 active:scale-95 transition-all min-h-[32px] inline-flex items-center"
+                  >
+                    {tech}
+                  </button>
+                ))}
+              </div>
+              {(selectedCategory !== "ALL" || searchQuery || selectedTech) && (
+                <button
+                  onClick={() => {
+                    setSelectedCategory("ALL");
+                    setSearchQuery("");
+                    setSelectedTech(null);
+                  }}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-cyan-950/80 hover:bg-cyan-900/90 border border-cyan-500/40 text-cyan-300 hover:text-white text-xs font-mono font-medium shadow-lg shadow-cyan-950/40 active:scale-95 transition-all min-h-[44px]"
+                >
+                  <span>Reset All Filters</span>
+                  <span className="text-cyan-400">&rarr;</span>
+                </button>
+              )}
+            </motion.div>
+          ) : (
           <motion.div
             layout
             className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5"
@@ -314,10 +386,10 @@ export default function BlueprintCatalog({ initialProjects }: BlueprintCatalogPr
                               aria-pressed={isSelected}
                               aria-label={`Filter by ${tech}`}
                               className={cn(
-                                "font-mono text-[11px] px-2.5 py-1 rounded transition-all min-h-[32px] inline-flex items-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-950",
+                                "font-mono text-[11px] px-2.5 py-1 rounded transition-all duration-150 active:scale-95 min-h-[32px] inline-flex items-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-950",
                                 isSelected
-                                  ? "bg-cyan-950/90 border border-cyan-500/50 text-cyan-200 ring-1 ring-cyan-500/30 font-medium"
-                                  : "bg-zinc-800/70 border border-white/[0.06] text-zinc-300 hover:border-cyan-500/30 hover:text-zinc-100"
+                                  ? "bg-cyan-950/90 border border-cyan-500/50 text-cyan-200 ring-1 ring-cyan-500/30 font-medium shadow-sm"
+                                  : "bg-zinc-800/70 border border-white/[0.06] text-zinc-300 hover:border-cyan-500/40 hover:text-zinc-100"
                               )}
                             >
                               {tech}
@@ -354,6 +426,7 @@ export default function BlueprintCatalog({ initialProjects }: BlueprintCatalogPr
           </motion.div>
         )}
       </AnimatePresence>
+      </div>
     </div>
   );
 }

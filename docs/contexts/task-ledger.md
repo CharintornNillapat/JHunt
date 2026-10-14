@@ -135,6 +135,11 @@ Elevate `JHunt` from a keyword scraper and Telegram alerter into a production-gr
 - [x] **Task 5.2: Desktop Web Reading & Study Refinements** (A4 print stylesheet, page-break hygiene, dark-to-light theme inversion, keyboard shortcuts cheat sheet modal with `?`, `p`/`Ctrl+P`, `Esc`).
 - [x] **Task 5.3: JobsDB Scraper Detail Page Fetch for Unseen Jobs** (SEEK REST detail endpoint integration for newly discovered jobs, known_ids optimization, resilient error fallback, and rate throttling).
 
+#### Phase 6: Design System, Craftsmanship & UI Polish (P6)
+- [x] **Task 6.1: Shell, Theme, Cards & Blueprint Reader Design Polish** (Obsidian semantic tokens, typography smoothing, custom scrollbars, backdrop-blur sticky navbar and sub-header, dual-sheen tactile SpotlightCard, refined markdown hierarchy, and accessible shortcuts modal).
+- [x] **Task 6.2: Blueprint Catalog Interactive Filtering & Search UX Polish** (Real-time telemetry matching counter, category counts with tabular numerals, cyan glow search focus ring, active tag pills, min-h container layout shift protection, and tactile empty state recovery).
+- [x] **Task 6.3: Market Analytics & Skill Gap Matcher Telemetry Polish** (Flattened card hierarchy, font-mono tabular numerals across salary and market reach metrics, restrained RadialGauge stroke, tabular compensation benchmark breakdown, tactile category tabs, and Obsidian loading skeleton).
+
 ---
 
 ## 3. Operational Guardrails Log

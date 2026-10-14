@@ -89,9 +89,7 @@ function RadialGauge({
           r={radius}
           className={cn(
             "stroke-current transition-all duration-700 ease-out",
-            isHighlight
-              ? "text-emerald-400 drop-shadow-[0_0_10px_rgba(52,211,153,0.6)]"
-              : "text-cyan-400"
+            isHighlight ? "text-emerald-400" : "text-cyan-400"
           )}
           strokeWidth="7"
           strokeDasharray={circumference}
@@ -101,7 +99,7 @@ function RadialGauge({
         />
       </svg>
       <div className="absolute flex flex-col items-center justify-center text-center">
-        <span className="text-lg sm:text-2xl font-bold font-mono text-white tracking-tight">
+        <span className="text-xl sm:text-2xl font-bold font-mono text-white tracking-tight tabular-nums">
           {percentage}%
         </span>
         <span className="text-[8px] sm:text-[9px] font-mono uppercase tracking-wider text-zinc-400">
@@ -272,7 +270,7 @@ export default function SkillGapMatcher({ initialData }: SkillGapMatcherProps) {
 
   return (
     <SpotlightCard
-      className="p-4 sm:p-6 lg:p-8 border border-white/[0.08] bg-zinc-950/70 rounded-2xl relative overflow-hidden backdrop-blur-xl"
+      className="p-4 sm:p-6 lg:p-8 border border-white/[0.08] bg-[#0c0d12] rounded-2xl relative overflow-hidden backdrop-blur-xl"
       spotlightColor="rgba(6, 182, 212, 0.15)"
     >
       {/* Background radial glow accents */}
@@ -306,7 +304,7 @@ export default function SkillGapMatcher({ initialData }: SkillGapMatcherProps) {
         {selectedSkills.length > 0 && (
           <button
             onClick={clearAllSkills}
-            className="self-start sm:self-center text-xs font-mono text-zinc-400 hover:text-rose-400 transition-colors px-3 py-1.5 rounded-lg border border-white/[0.06] hover:border-rose-500/30 bg-zinc-900/40 min-h-[36px] sm:min-h-[32px] flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
+            className="self-start sm:self-center text-xs font-mono text-zinc-400 hover:text-rose-400 transition-all duration-150 px-3 py-1.5 rounded-lg border border-white/[0.06] hover:border-rose-500/30 bg-zinc-900/40 min-h-[44px] flex items-center justify-center active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
           >
             Clear Stack
           </button>
@@ -339,7 +337,7 @@ export default function SkillGapMatcher({ initialData }: SkillGapMatcherProps) {
                       aria-pressed={isActive}
                       title={preset.description}
                       className={cn(
-                        "flex flex-col text-left p-2 sm:p-2.5 rounded-lg border transition-all min-h-[44px] justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950",
+                        "flex flex-col text-left p-2 sm:p-2.5 rounded-lg border transition-all duration-150 min-h-[44px] justify-center active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950",
                         isActive
                           ? "bg-cyan-950/90 border-cyan-500/50 text-cyan-200 ring-1 ring-cyan-500/30 shadow-sm"
                           : "bg-zinc-900/70 border-white/[0.08] text-zinc-300 hover:text-white hover:bg-zinc-800/80 hover:border-white/[0.15]"
@@ -372,12 +370,12 @@ export default function SkillGapMatcher({ initialData }: SkillGapMatcherProps) {
                   onChange={(e) => setInputValue(e.target.value)}
                   onKeyDown={handleKeyDown}
                   placeholder="Type a skill (e.g. Docker, React, AWS) and press Enter..."
-                  className="w-full pl-10 pr-10 py-2.5 text-sm bg-zinc-900/90 border border-white/[0.1] rounded-xl text-white placeholder-zinc-500 focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/50 transition-all font-mono"
+                  className="w-full pl-10 pr-12 py-2.5 text-sm bg-zinc-900/90 border border-white/[0.1] rounded-xl text-white placeholder-zinc-500 focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/50 transition-all font-mono min-h-[44px]"
                 />
                 {inputValue && (
                   <button
                     onClick={() => addSkill(inputValue)}
-                    className="absolute right-2 px-2 py-1 text-xs font-mono rounded bg-cyan-950 border border-cyan-500/40 text-cyan-300 hover:bg-cyan-900 transition-colors"
+                    className="absolute right-2 px-2.5 py-1 text-xs font-mono rounded bg-cyan-950 border border-cyan-500/40 text-cyan-300 hover:bg-cyan-900 active:scale-95 transition-all min-h-[32px] flex items-center justify-center"
                   >
                     Add
                   </button>
@@ -391,10 +389,10 @@ export default function SkillGapMatcher({ initialData }: SkillGapMatcherProps) {
                     <button
                       key={suggestion}
                       onClick={() => addSkill(suggestion)}
-                      className="w-full text-left px-3.5 py-2 text-xs font-mono text-zinc-300 hover:bg-cyan-950/60 hover:text-cyan-300 flex items-center justify-between transition-colors"
+                      className="w-full text-left px-3.5 py-2.5 min-h-[44px] text-xs font-mono text-zinc-300 hover:bg-cyan-950/60 hover:text-cyan-300 active:scale-95 flex items-center justify-between transition-all duration-150"
                     >
                       <span>{suggestion}</span>
-                      <Plus className="h-3 w-3 text-cyan-400" />
+                      <Plus className="h-3.5 w-3.5 text-cyan-400" />
                     </button>
                   ))}
                 </div>
@@ -411,12 +409,12 @@ export default function SkillGapMatcher({ initialData }: SkillGapMatcherProps) {
                 selectedSkills.map((skill) => (
                   <span
                     key={skill}
-                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-mono bg-cyan-950/60 border border-cyan-500/30 text-cyan-200 shadow-sm transition-all"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono bg-cyan-950/60 border border-cyan-500/30 text-cyan-200 shadow-sm transition-all"
                   >
                     <span>{skill}</span>
                     <button
                       onClick={() => removeSkill(skill)}
-                      className="hover:text-white transition-colors p-0.5 rounded-full hover:bg-cyan-900/60"
+                      className="hover:text-white active:scale-90 transition-transform p-0.5 rounded-full hover:bg-cyan-900/60"
                       aria-label={`Remove ${skill}`}
                     >
                       <X className="h-3 w-3" />
@@ -441,7 +439,7 @@ export default function SkillGapMatcher({ initialData }: SkillGapMatcherProps) {
                   <button
                     key={skill}
                     onClick={() => (isSelected ? removeSkill(skill) : addSkill(skill))}
-                    className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-mono transition-all border min-h-[36px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-950 ${
+                    className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-md text-xs font-mono transition-all duration-150 border min-h-[44px] active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-950 ${
                       isSelected
                         ? "bg-cyan-950/90 border-cyan-500/50 text-cyan-300 shadow-sm"
                         : "bg-zinc-900/60 border-white/[0.06] text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60 hover:border-white/[0.12]"
@@ -461,7 +459,7 @@ export default function SkillGapMatcher({ initialData }: SkillGapMatcherProps) {
         </div>
 
         {/* Right Column: Live Market Coverage HUD Gauge (5 cols) */}
-        <div className="lg:col-span-5 flex flex-col justify-between bg-zinc-900/40 border border-white/[0.06] rounded-xl p-4 sm:p-5 relative">
+        <div className="lg:col-span-5 flex flex-col justify-between bg-zinc-900/30 border border-white/[0.05] rounded-xl p-4 sm:p-5 relative">
           <div className="flex items-center justify-between pb-3 border-b border-white/[0.05]">
             <span className="text-xs font-mono text-zinc-400 uppercase tracking-wider">
               Market Coverage Index
@@ -484,16 +482,16 @@ export default function SkillGapMatcher({ initialData }: SkillGapMatcherProps) {
 
             <div className="space-y-1.5 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-xl sm:text-2xl font-bold font-mono text-white tracking-tight">
-                  {matchedJobsCount}{" "}
-                  <span className="text-xs sm:text-sm font-normal text-zinc-400 font-sans">
-                    / {totalTechJobs} postings
-                  </span>
+                <span className="text-xl sm:text-2xl font-bold font-mono text-white tracking-tight tabular-nums">
+                  {matchedJobsCount}
+                </span>
+                <span className="text-xs sm:text-sm font-normal text-zinc-400 font-sans">
+                  / <span className="tabular-nums font-mono">{totalTechJobs}</span> postings
                 </span>
                 {delta !== null && delta > 0 && (
                   <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-950/90 border border-emerald-500/50 text-emerald-300 shadow-sm animate-pulse">
                     <TrendingUp className="h-2.5 w-2.5" />
-                    +{delta}% Reach
+                    <span className="tabular-nums">+{delta}% Reach</span>
                   </span>
                 )}
               </div>
@@ -501,7 +499,7 @@ export default function SkillGapMatcher({ initialData }: SkillGapMatcherProps) {
                 {fitAssessment.label}
               </div>
               <p className="text-[11px] text-zinc-400 leading-snug">
-                Your current tech stack matches {coverageRate}% of active Thai engineering
+                Your current tech stack matches <span className="font-mono tabular-nums text-zinc-200">{coverageRate}%</span> of active Thai engineering
                 postings requiring verified tech clusters.
               </p>
             </div>
@@ -535,14 +533,14 @@ export default function SkillGapMatcher({ initialData }: SkillGapMatcherProps) {
               {data.recommendedSkills.slice(0, 4).map((rec) => (
                 <div
                   key={rec.name}
-                  className="p-3.5 rounded-xl bg-zinc-900/60 border border-white/[0.06] hover:border-cyan-500/30 transition-all flex flex-col justify-between group"
+                  className="p-3.5 rounded-xl bg-zinc-900/40 border border-white/[0.05] hover:border-cyan-500/30 transition-all flex flex-col justify-between group"
                 >
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
                       <span className="text-sm font-bold text-white font-mono group-hover:text-cyan-300 transition-colors">
                         {rec.name}
                       </span>
-                      <span className="text-[11px] font-mono font-semibold px-2 py-0.5 rounded bg-emerald-950/80 border border-emerald-500/30 text-emerald-300">
+                      <span className="text-[11px] font-mono font-semibold tabular-nums px-2 py-0.5 rounded bg-emerald-950/80 border border-emerald-500/30 text-emerald-300">
                         +{rec.unlockPercentage}% reach
                       </span>
                     </div>
@@ -551,16 +549,16 @@ export default function SkillGapMatcher({ initialData }: SkillGapMatcherProps) {
                       {rec.coOccurrenceRate > 0 && (
                         <div>
                           Companion in{" "}
-                          <span className="text-zinc-200">{rec.coOccurrenceRate}%</span>{" "}
+                          <span className="text-zinc-200 tabular-nums">{rec.coOccurrenceRate}%</span>{" "}
                           of target jobs
                         </div>
                       )}
                       {rec.avgSalary && rec.avgSalary > 0 && (
-                        <div className="flex items-center gap-1 text-cyan-400/90">
-                          <Banknote className="h-3 w-3" />
-                          <span>฿{rec.avgSalary.toLocaleString()}/mo avg</span>
+                        <div className="flex items-center gap-1 text-cyan-300 font-semibold font-mono">
+                          <Banknote className="h-3 w-3 text-cyan-400 shrink-0" />
+                          <span className="tabular-nums">฿{rec.avgSalary.toLocaleString()}/mo</span>
                           {rec.salarySampleCount ? (
-                            <span className="text-zinc-500 text-[10px]">
+                            <span className="text-zinc-500 font-normal tabular-nums text-[10px]">
                               (n={rec.salarySampleCount})
                             </span>
                           ) : null}
@@ -571,7 +569,7 @@ export default function SkillGapMatcher({ initialData }: SkillGapMatcherProps) {
 
                   <button
                     onClick={() => addSkill(rec.name)}
-                    className="mt-3 w-full min-h-[44px] py-1.5 px-2 rounded-lg bg-zinc-800/70 hover:bg-cyan-950 border border-white/[0.08] hover:border-cyan-500/40 text-xs font-mono text-zinc-300 hover:text-cyan-300 transition-all flex items-center justify-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
+                    className="mt-3 w-full min-h-[44px] py-1.5 px-2 rounded-lg bg-zinc-800/70 hover:bg-cyan-950 border border-white/[0.08] hover:border-cyan-500/40 text-xs font-mono text-zinc-300 hover:text-cyan-300 active:scale-95 transition-all duration-150 flex items-center justify-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
                   >
                     <Plus className="h-3 w-3" />
                     <span>Simulate adding {rec.name}</span>
@@ -614,10 +612,10 @@ export default function SkillGapMatcher({ initialData }: SkillGapMatcherProps) {
                     key={bp.id}
                     href={`/blueprints/${bp.id}`}
                     className={cn(
-                      "block p-4 rounded-xl border transition-all group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950",
+                      "block p-4 rounded-xl border transition-all duration-150 group active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950",
                       isFullyUnlocked
-                        ? "bg-zinc-900/90 border-emerald-500/40 shadow-[0_0_15px_rgba(16,185,129,0.12)] hover:border-emerald-400/60 hover:bg-zinc-900"
-                        : "bg-zinc-900/60 border-white/[0.06] hover:border-cyan-500/40 hover:bg-zinc-900/80"
+                        ? "bg-zinc-900/50 border-emerald-500/30 shadow-[0_0_12px_rgba(16,185,129,0.1)] hover:border-emerald-400/50 hover:bg-zinc-900/70"
+                        : "bg-zinc-900/40 border-white/[0.05] hover:border-cyan-500/30 hover:bg-zinc-900/60"
                     )}
                   >
                     <div className="flex items-start justify-between gap-3 mb-2">
@@ -637,21 +635,22 @@ export default function SkillGapMatcher({ initialData }: SkillGapMatcherProps) {
 
                       <div className="text-right shrink-0">
                         {isFullyUnlocked ? (
-                          <span className="inline-flex items-center gap-1 text-[11px] font-mono font-bold px-2.5 py-0.5 rounded-md bg-emerald-950 border border-emerald-500/50 text-emerald-300 shadow-[0_0_12px_rgba(16,185,129,0.25)]">
+                          <span className="inline-flex items-center gap-1 text-[11px] font-mono font-bold px-2.5 py-0.5 rounded-md bg-emerald-950 border border-emerald-500/40 text-emerald-300 shadow-[0_0_10px_rgba(16,185,129,0.2)]">
                             <CheckCircle2 className="h-3 w-3 text-emerald-400" />
                             <span>Fully Unlocked</span>
                           </span>
                         ) : isHighMatch ? (
-                          <span className="inline-flex items-center gap-1 text-[11px] font-mono font-semibold px-2 py-0.5 rounded-md bg-cyan-950/90 border border-cyan-500/50 text-cyan-200">
-                            <span>{bp.matchPercentage}% High Match</span>
+                          <span className="inline-flex items-center gap-1 text-[11px] font-mono font-semibold px-2 py-0.5 rounded-md bg-cyan-950/90 border border-cyan-500/40 text-cyan-200">
+                            <span className="tabular-nums">{bp.matchPercentage}% High Match</span>
                           </span>
                         ) : (
                           <span
-                            className={`text-xs font-mono font-bold px-2 py-0.5 rounded border ${
+                            className={cn(
+                              "text-xs font-mono font-bold px-2 py-0.5 rounded border tabular-nums",
                               bp.matchPercentage >= 50
                                 ? "bg-cyan-950/80 border-cyan-500/40 text-cyan-300"
                                 : "bg-zinc-800/80 border-white/[0.06] text-zinc-400"
-                            }`}
+                            )}
                           >
                             {bp.matchPercentage}% Stack Match
                           </span>

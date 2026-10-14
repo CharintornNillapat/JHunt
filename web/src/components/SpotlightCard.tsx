@@ -35,7 +35,9 @@ export default function SpotlightCard({
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       className={cn(
-        "relative rounded-xl border border-white/[0.07] bg-[#0d0e12] overflow-hidden transition-all duration-300 group",
+        "relative rounded-xl border border-white/[0.07] bg-[#0d0e12] overflow-hidden transition-all duration-200 ease-out group",
+        "hover:border-white/[0.14] hover:-translate-y-0.5 hover:shadow-xl hover:shadow-cyan-950/20 active:translate-y-0",
+        "motion-reduce:hover:translate-y-0 motion-reduce:transition-none",
         className
       )}
       {...props}
@@ -45,7 +47,7 @@ export default function SpotlightCard({
         className="pointer-events-none absolute -inset-px transition-opacity duration-300 z-0"
         style={{
           opacity: isHovered ? 1 : 0,
-          background: `radial-gradient(400px circle at ${mousePos.x}px ${mousePos.y}px, ${spotlightColor}, transparent 80%)`,
+          background: `radial-gradient(160px circle at ${mousePos.x}px ${mousePos.y}px, ${spotlightColor}, transparent 80%), radial-gradient(420px circle at ${mousePos.x}px ${mousePos.y}px, rgba(6, 182, 212, 0.04), transparent 80%)`,
         }}
         aria-hidden="true"
       />
@@ -53,8 +55,8 @@ export default function SpotlightCard({
       <div
         className="pointer-events-none absolute inset-0 rounded-xl transition-opacity duration-300 z-0"
         style={{
-          opacity: isHovered ? 0.6 : 0,
-          boxShadow: "inset 0 0 0 1px rgba(255, 255, 255, 0.08)",
+          opacity: isHovered ? 0.8 : 0,
+          boxShadow: "inset 0 0 0 1px rgba(255, 255, 255, 0.12)",
         }}
         aria-hidden="true"
       />

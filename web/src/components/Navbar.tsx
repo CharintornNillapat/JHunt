@@ -28,12 +28,15 @@ export default function Navbar() {
   ];
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b border-white/[0.07] bg-[#08080a] print:hidden">
+    <header className="sticky top-0 z-50 w-full border-b border-white/[0.07] bg-[#08080a]/85 backdrop-blur-md transition-colors duration-200 print:hidden">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
         {/* Brand / Logo */}
         <div className="flex items-center gap-4 sm:gap-8">
-          <Link href="/" className="flex items-center gap-3 group">
-            <div className="h-9 w-9 rounded-lg bg-gradient-to-tr from-cyan-500 via-sky-600 to-indigo-600 flex items-center justify-center shadow-lg shadow-cyan-500/20 group-hover:scale-105 transition-transform duration-200">
+          <Link
+            href="/"
+            className="flex items-center gap-3 group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#08080a] rounded-lg"
+          >
+            <div className="h-9 w-9 rounded-lg bg-gradient-to-tr from-cyan-500 via-sky-600 to-indigo-600 flex items-center justify-center shadow-lg shadow-cyan-500/20 group-hover:scale-[1.03] active:scale-95 transition-transform duration-200 ease-out">
               <Terminal className="h-4.5 w-4.5 text-white" />
             </div>
             <div className="flex flex-col">
@@ -47,7 +50,7 @@ export default function Navbar() {
           </Link>
 
           {/* Navigation Links with animated active pill (functional on mobile and desktop) */}
-          <nav className="flex items-center gap-1.5 p-1 rounded-lg bg-zinc-900 border border-white/[0.06]">
+          <nav className="flex items-center gap-1.5 p-1 rounded-lg bg-zinc-900/90 border border-white/[0.06]">
             {navItems.map((item) => {
               const Icon = item.icon;
               const isActive =
@@ -61,7 +64,7 @@ export default function Navbar() {
                   href={item.href}
                   aria-label={item.label}
                   className={cn(
-                    "relative flex items-center gap-2 px-2.5 sm:px-3.5 py-1.5 rounded-md text-xs font-medium transition-colors duration-200",
+                    "relative flex items-center gap-2 px-2.5 sm:px-3.5 py-1.5 rounded-md text-xs font-medium transition-all duration-150 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-900",
                     isActive ? "text-cyan-300" : "text-zinc-400 hover:text-zinc-200"
                   )}
                 >
@@ -69,7 +72,7 @@ export default function Navbar() {
                     <motion.span
                       layoutId="activeNavPill"
                       className="absolute inset-0 rounded-md bg-cyan-950/70 border border-cyan-500/30 shadow-sm"
-                      transition={{ type: "spring", stiffness: 260, damping: 25 }}
+                      transition={{ type: "spring", stiffness: 380, damping: 28 }}
                     />
                   )}
                   <Icon className="h-3.5 w-3.5 relative z-10" />
@@ -86,7 +89,7 @@ export default function Navbar() {
             href="https://github.com/CharintornNillapat/JHunt"
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-zinc-900 border border-white/[0.08] hover:border-zinc-700 text-zinc-300 hover:text-white transition-all text-xs font-medium"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-zinc-900 border border-white/[0.08] hover:border-white/[0.16] hover:bg-zinc-800 text-zinc-300 hover:text-white active:scale-95 transition-all duration-150 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-1 focus-visible:ring-offset-[#08080a]"
           >
             <GithubIcon className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">GitHub</span>

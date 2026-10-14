@@ -82,9 +82,9 @@ function CustomSalaryTooltip({
     return (
       <div className="rounded-lg bg-[#0c0d12] border border-white/10 px-3.5 py-2.5 text-xs shadow-2xl">
         <div className="font-semibold text-zinc-100">{data.skill}</div>
-        <div className="font-mono text-cyan-400 mt-1 flex items-center gap-1.5">
+        <div className="font-mono tabular-nums text-cyan-300 font-semibold mt-1 flex items-center gap-1.5">
           <span>฿{data.avg_salary.toLocaleString()}/mo</span>
-          <span className="text-zinc-500">
+          <span className="text-zinc-500 font-normal text-[11px]">
             (n={data.sample_count} {data.sample_count === 1 ? "job" : "jobs"})
           </span>
         </div>
@@ -106,10 +106,10 @@ function CustomBarTooltip({
     return (
       <div className="rounded-lg bg-[#0c0d12] border border-white/10 px-3.5 py-2.5 text-xs shadow-2xl">
         <div className="font-semibold text-zinc-100">{data.name}</div>
-        <div className="font-mono text-cyan-400 mt-1 flex items-center gap-1.5">
-          <span>{data.count} mentions</span>
+        <div className="font-mono tabular-nums text-cyan-300 mt-1 flex items-center gap-1.5">
+          <span className="font-semibold">{data.count} mentions</span>
           {data.percentage ? (
-            <span className="text-zinc-500">({data.percentage}% demand)</span>
+            <span className="text-zinc-500 font-normal">({data.percentage}% demand)</span>
           ) : null}
         </div>
       </div>
@@ -130,8 +130,8 @@ function CustomPieTooltip({
     return (
       <div className="rounded-lg bg-[#0c0d12] border border-white/10 px-3.5 py-2.5 text-xs shadow-2xl">
         <div className="font-semibold text-zinc-100">{data.name}</div>
-        <div className="font-mono text-indigo-400 mt-1">
-          {data.count} positions ({data.percentage ?? 0}%)
+        <div className="font-mono tabular-nums text-indigo-300 mt-1">
+          <span className="font-semibold">{data.count} positions</span> ({data.percentage ?? 0}%)
         </div>
       </div>
     );
@@ -373,22 +373,35 @@ function CompensationCard({
             </ResponsiveContainer>
           </div>
 
-          {/* Quick Benchmark Pills */}
-          <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-white/[0.04]">
-            {topCompensatedSkills.slice(0, 6).map((item) => (
-              <div
-                key={item.skill}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-zinc-900 border border-white/[0.06] text-xs font-mono"
-              >
-                <span className="text-zinc-300">{item.skill}:</span>
-                <span className="text-cyan-400 font-semibold">
-                  ฿{item.avg_salary.toLocaleString()}/mo
-                </span>
-                <span className="text-zinc-500 text-[11px]">
-                  (n={item.sample_count} {item.sample_count === 1 ? "job" : "jobs"})
-                </span>
+          {/* Tabular Compensation Benchmark Table */}
+          <div className="pt-4 border-t border-white/[0.06] overflow-x-auto">
+            <div className="text-[11px] font-mono uppercase tracking-wider text-zinc-500 mb-2 flex items-center justify-between">
+              <span>Benchmark Breakdown</span>
+              <span>Verified Postings</span>
+            </div>
+            <div className="divide-y divide-white/[0.04] text-xs font-mono">
+              <div className="grid grid-cols-12 pb-2 text-zinc-500 font-medium">
+                <div className="col-span-6 sm:col-span-5 text-left">Skill / Competency</div>
+                <div className="col-span-4 sm:col-span-4 text-right">Average Monthly</div>
+                <div className="col-span-2 sm:col-span-3 text-right">Sample (n)</div>
               </div>
-            ))}
+              {topCompensatedSkills.map((item) => (
+                <div
+                  key={item.skill}
+                  className="grid grid-cols-12 py-2 items-center hover:bg-white/[0.02] transition-colors"
+                >
+                  <div className="col-span-6 sm:col-span-5 text-left font-medium text-zinc-200">
+                    {item.skill}
+                  </div>
+                  <div className="col-span-4 sm:col-span-4 text-right font-mono tabular-nums text-cyan-300 font-semibold">
+                    ฿{item.avg_salary.toLocaleString()}/mo
+                  </div>
+                  <div className="col-span-2 sm:col-span-3 text-right font-mono tabular-nums text-zinc-500 text-[11px]">
+                    n={item.sample_count}
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       ) : (
@@ -420,7 +433,7 @@ function DatabasesCard({ data }: { data: MarketMetricItem[] }) {
           <div key={db.name} className="space-y-1.5">
             <div className="flex justify-between text-xs font-mono">
               <span className="text-zinc-300 font-medium">{db.name}</span>
-              <span className="text-cyan-400">{db.percentage ?? 0}%</span>
+              <span className="text-cyan-400 tabular-nums">{db.percentage ?? 0}%</span>
             </div>
             <div className="h-1.5 w-full rounded-full bg-zinc-800/80 overflow-hidden">
               <div
@@ -452,7 +465,7 @@ function FrameworksCard({ data }: { data: MarketMetricItem[] }) {
           <div key={fw.name} className="space-y-1.5">
             <div className="flex justify-between text-xs font-mono">
               <span className="text-zinc-300 font-medium">{fw.name}</span>
-              <span className="text-emerald-400">{fw.percentage ?? 0}%</span>
+              <span className="text-emerald-400 tabular-nums">{fw.percentage ?? 0}%</span>
             </div>
             <div className="h-1.5 w-full rounded-full bg-zinc-800/80 overflow-hidden">
               <div
@@ -635,7 +648,7 @@ export default function AnalyticsCharts({ analytics }: AnalyticsChartsProps) {
                 onClick={() => setActiveCategory(cat.id)}
                 onKeyDown={(e) => handleTabKeyDown(e, idx)}
                 className={cn(
-                  "inline-flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-mono font-medium transition-all shrink-0 min-h-[44px]",
+                  "inline-flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-mono font-medium transition-all duration-150 shrink-0 min-h-[44px] active:scale-95",
                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950",
                   isSelected
                     ? "bg-cyan-500/15 text-cyan-300 border border-cyan-500/40 ring-1 ring-cyan-500/30 shadow-sm"
@@ -652,7 +665,7 @@ export default function AnalyticsCharts({ analytics }: AnalyticsChartsProps) {
                 {cat.count !== undefined && (
                   <span
                     className={cn(
-                      "text-[10px] px-1.5 py-0.5 rounded-full font-mono",
+                      "text-[10px] px-1.5 py-0.5 rounded-full font-mono tabular-nums",
                       isSelected
                         ? "bg-cyan-950 text-cyan-300 border border-cyan-500/30"
                         : "bg-zinc-800 text-zinc-500"
@@ -670,7 +683,7 @@ export default function AnalyticsCharts({ analytics }: AnalyticsChartsProps) {
         <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
           <button
             onClick={exportCSV}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-mono font-medium bg-zinc-900 text-zinc-300 hover:text-white hover:bg-zinc-800/80 border border-white/10 hover:border-cyan-500/40 transition-all min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-mono font-medium bg-zinc-900 text-zinc-300 hover:text-white hover:bg-zinc-800/80 border border-white/10 hover:border-cyan-500/40 active:scale-95 transition-all duration-150 min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
             title="Download CSV spreadsheet"
             aria-label="Export market analytics as CSV"
           >
@@ -689,7 +702,7 @@ export default function AnalyticsCharts({ analytics }: AnalyticsChartsProps) {
 
           <button
             onClick={exportJSON}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-mono font-medium bg-zinc-900 text-zinc-300 hover:text-white hover:bg-zinc-800/80 border border-white/10 hover:border-cyan-500/40 transition-all min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-mono font-medium bg-zinc-900 text-zinc-300 hover:text-white hover:bg-zinc-800/80 border border-white/10 hover:border-cyan-500/40 active:scale-95 transition-all duration-150 min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
             title="Download JSON telemetry"
             aria-label="Export market analytics as JSON"
           >
