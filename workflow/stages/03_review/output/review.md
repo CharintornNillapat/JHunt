@@ -1,6 +1,6 @@
-# Review: Task 3.1 — Web Performance and Interactive UX Polish
+# Review: Task 3.2 — Adaptive Device Performance and Keyboard UX
 
-Task: 3.1
+Task: 3.2
 Verdict: PASS
 Tests: 197 passed (run by reviewer), web lint & build clean
 

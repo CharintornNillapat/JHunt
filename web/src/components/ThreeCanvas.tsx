@@ -32,10 +32,15 @@ export default function ThreeCanvas() {
     container.appendChild(renderer.domElement);
 
     // 3. Node Constellation Configuration
-    const NODE_COUNT = 160;
-    const BOUNDS = { x: 50, y: 35, z: 40 };
+    const isMobile = width < 768;
+    const NODE_COUNT = isMobile ? 60 : 160;
+    const MAX_CONNECTIONS = isMobile ? 200 : 600;
+    const BOUNDS = {
+      x: isMobile ? 30 : 50,
+      y: isMobile ? 30 : 35,
+      z: isMobile ? 30 : 40,
+    };
     const MAX_DISTANCE = 14;
-    const MAX_CONNECTIONS = 600;
 
     const positions = new Float32Array(NODE_COUNT * 3);
     const velocities = new Float32Array(NODE_COUNT * 3);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -34,6 +34,44 @@ export default function BlueprintCatalog({ initialProjects }: BlueprintCatalogPr
   const [selectedCategory, setSelectedCategory] = useState<RoleCategory>("ALL");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTech, setSelectedTech] = useState<string | null>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore shortcut if user is currently typing in an input, textarea, or contentEditable
+      const target = e.target as HTMLElement | null;
+      const isEditing =
+        target?.tagName === "INPUT" ||
+        target?.tagName === "TEXTAREA" ||
+        target?.isContentEditable;
+
+      // '/' shortcut: focus search input
+      if (e.key === "/" && !isEditing) {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+        searchInputRef.current?.select();
+        return;
+      }
+
+      // 'Escape' shortcut: dismiss query or active tag filter
+      if (e.key === "Escape") {
+        if (document.activeElement === searchInputRef.current) {
+          if (searchQuery) {
+            setSearchQuery("");
+          } else {
+            searchInputRef.current?.blur();
+          }
+        } else if (selectedTech) {
+          setSelectedTech(null);
+        } else if (searchQuery) {
+          setSearchQuery("");
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [searchQuery, selectedTech]);
 
   const filteredProjects = useMemo(() => {
     return initialProjects.filter((project) => {
@@ -120,15 +158,34 @@ export default function BlueprintCatalog({ initialProjects }: BlueprintCatalogPr
             </div>
           )}
           <div className="relative min-w-[240px] md:w-72">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-500" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-500 pointer-events-none" />
             <input
+              ref={searchInputRef}
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               aria-label="Filter by tech, domain, or role"
+              aria-keyshortcuts="/"
               placeholder="Filter by tech, domain, or role..."
-              className="w-full bg-zinc-900/60 border border-white/[0.08] focus:border-cyan-500/50 rounded-lg pl-9 pr-3 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-500 focus:outline-none transition-all"
+              className="w-full bg-zinc-900/60 border border-white/[0.08] focus:border-cyan-500/50 rounded-lg pl-9 pr-10 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-500 focus:outline-none transition-all"
             />
+            {searchQuery ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchQuery("");
+                  searchInputRef.current?.focus();
+                }}
+                aria-label="Clear search input"
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-white rounded focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cyan-400"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            ) : (
+              <kbd className="hidden sm:inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono bg-zinc-800 text-zinc-400 border border-white/[0.08] absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none select-none">
+                /
+              </kbd>
+            )}
           </div>
         </div>
       </div>

@@ -12,11 +12,41 @@ interface CacheEntry {
 }
 
 const RESPONSE_CACHE_TTL_MS = 10 * 60 * 1000;
+const MAX_CACHE_ENTRIES = 200;
 const responseCache = new Map<string, CacheEntry>();
 
 export function clearSkillGapResponseCache(): void {
   responseCache.clear();
   console.log("[API] /api/skill-gap response cache cleared.");
+}
+
+function getFromCache(key: string, now: number): SkillGapResponse | null {
+  const cached = responseCache.get(key);
+  if (!cached) return null;
+  if (now >= cached.expiresAt) {
+    responseCache.delete(key);
+    return null;
+  }
+  // Refresh LRU recency: re-insert at end of Map
+  responseCache.delete(key);
+  responseCache.set(key, cached);
+  return cached.data;
+}
+
+function setInCache(key: string, data: SkillGapResponse, now: number): void {
+  if (responseCache.has(key)) {
+    responseCache.delete(key);
+  } else if (responseCache.size >= MAX_CACHE_ENTRIES) {
+    // Evict least recently used (first key in Map iterator)
+    const oldestKey = responseCache.keys().next().value;
+    if (oldestKey !== undefined) {
+      responseCache.delete(oldestKey);
+    }
+  }
+  responseCache.set(key, {
+    data,
+    expiresAt: now + RESPONSE_CACHE_TTL_MS,
+  });
 }
 
 function makeCacheKey(skills: string[]): string {
@@ -37,18 +67,15 @@ export async function POST(req: Request) {
       .slice(0, 30);
 
     const cacheKey = makeCacheKey(sanitizedSkills);
-    const cached = responseCache.get(cacheKey);
     const now = Date.now();
+    const cachedData = getFromCache(cacheKey, now);
 
-    if (cached && now < cached.expiresAt) {
-      return NextResponse.json(cached.data);
+    if (cachedData) {
+      return NextResponse.json(cachedData);
     }
 
     const result = await calculateSkillGap(sanitizedSkills);
-    responseCache.set(cacheKey, {
-      data: result,
-      expiresAt: now + RESPONSE_CACHE_TTL_MS,
-    });
+    setInCache(cacheKey, result, now);
 
     return NextResponse.json(result);
   } catch (err) {
@@ -71,18 +98,15 @@ export async function GET(req: Request) {
       .slice(0, 30);
 
     const cacheKey = makeCacheKey(parsedSkills);
-    const cached = responseCache.get(cacheKey);
     const now = Date.now();
+    const cachedData = getFromCache(cacheKey, now);
 
-    if (cached && now < cached.expiresAt) {
-      return NextResponse.json(cached.data);
+    if (cachedData) {
+      return NextResponse.json(cachedData);
     }
 
     const result = await calculateSkillGap(parsedSkills);
-    responseCache.set(cacheKey, {
-      data: result,
-      expiresAt: now + RESPONSE_CACHE_TTL_MS,
-    });
+    setInCache(cacheKey, result, now);
 
     return NextResponse.json(result);
   } catch (err) {

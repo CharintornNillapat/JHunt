@@ -119,6 +119,7 @@ Elevate `JHunt` from a keyword scraper and Telegram alerter into a production-gr
 
 #### Phase 3: Performance & UX Polish (P3)
 - [x] **Task 3.1: Web Performance & Interactive UX Polish** (Lazy Three.js hero canvas, click-to-filter tech tags, sticky TOC with scroll-spy, 1-click role presets).
+- [x] **Task 3.2: Adaptive Device Performance & Keyboard UX** (Scale Three.js particles on mobile, bounded LRU cache on `/api/skill-gap`, global `/` and `Esc` search shortcuts).
 
 ---
 
