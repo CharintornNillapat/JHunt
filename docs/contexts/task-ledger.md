@@ -121,6 +121,7 @@ Elevate `JHunt` from a keyword scraper and Telegram alerter into a production-gr
 - [x] **Task 3.1: Web Performance & Interactive UX Polish** (Lazy Three.js hero canvas, click-to-filter tech tags, sticky TOC with scroll-spy, 1-click role presets).
 - [x] **Task 3.2: Adaptive Device Performance & Keyboard UX** (Scale Three.js particles on mobile, bounded LRU cache on `/api/skill-gap`, global `/` and `Esc` search shortcuts).
 - [x] **Task 3.3: Skill Gap UX Polish: Visual ROI Delta & Compact Mobile HUD** (Dynamic ROI reach delta badge and RadialGauge pulse, unlocked blueprint callouts, and compact mobile HUD reflow).
+- [x] **Task 3.4: Code Snippet Clipboard & Blueprint Deep-Linking UX** (Line count metadata, robust clipboard copy with fallback, heading anchor link sharing `#`, hash synchronization, and sticky share button).
 
 ---
 

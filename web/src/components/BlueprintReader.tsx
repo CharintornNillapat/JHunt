@@ -16,6 +16,7 @@ import {
   Gauge,
   Hash,
   List,
+  Share2,
 } from "lucide-react";
 import type { GeneratedProject } from "@/lib/turso";
 import { formatDate, parseTechStack } from "@/lib/format";
@@ -54,6 +55,35 @@ function getNodeText(node: unknown): string {
   return "";
 }
 
+const copyToClipboard = async (text: string): Promise<boolean> => {
+  try {
+    if (typeof navigator !== "undefined" && navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // Fallback for non-secure context or restricted permissions
+  }
+  try {
+    if (typeof document !== "undefined") {
+      const textArea = document.createElement("textarea");
+      textArea.value = text;
+      textArea.style.position = "fixed";
+      textArea.style.left = "-9999px";
+      textArea.style.top = "-9999px";
+      document.body.appendChild(textArea);
+      textArea.focus();
+      textArea.select();
+      const success = document.execCommand("copy");
+      document.body.removeChild(textArea);
+      return success;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+};
+
 function CodeBlockComponent({
   codeString,
   language,
@@ -62,9 +92,10 @@ function CodeBlockComponent({
   language: string;
 }) {
   const [copied, setCopied] = useState(false);
+  const lineCount = useMemo(() => codeString.split("\n").length, [codeString]);
 
-  const onCopy = () => {
-    navigator.clipboard.writeText(codeString);
+  const onCopy = async () => {
+    await copyToClipboard(codeString);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -82,12 +113,16 @@ function CodeBlockComponent({
           <span className="text-[11px] font-mono text-zinc-400 uppercase tracking-wider ml-2">
             {language || "SPEC // CONFIG"}
           </span>
+          <span className="text-[10px] font-mono text-zinc-400 px-2 py-0.5 rounded bg-zinc-800/80 border border-white/[0.06]">
+            {lineCount} {lineCount === 1 ? "line" : "lines"}
+          </span>
         </div>
 
         <button
           onClick={onCopy}
-          className="flex items-center gap-1 px-2.5 py-1 rounded text-[11px] font-mono text-zinc-400 hover:text-white bg-zinc-800/60 hover:bg-zinc-800 border border-white/[0.06] transition-colors"
+          className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-mono text-zinc-400 hover:text-white bg-zinc-800/60 hover:bg-zinc-800 border border-white/[0.06] transition-colors min-h-[36px] sm:min-h-[32px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-900"
           title="Copy code snippet"
+          aria-label={`Copy ${language || "code"} snippet`}
         >
           {copied ? (
             <>
@@ -100,11 +135,14 @@ function CodeBlockComponent({
               <span>Copy</span>
             </>
           )}
+          <span className="sr-only" aria-live="polite">
+            {copied ? "Code copied to clipboard" : ""}
+          </span>
         </button>
       </div>
 
       {/* Syntax Body */}
-      <div className="p-4 overflow-x-auto text-[13px] leading-relaxed font-mono text-zinc-200">
+      <div className="p-4 overflow-x-auto text-xs sm:text-[13px] leading-relaxed font-mono text-zinc-200">
         <pre className="!bg-transparent !p-0 !m-0 !border-none font-mono">
           <code>{codeString}</code>
         </pre>
@@ -116,6 +154,9 @@ function CodeBlockComponent({
 export default function BlueprintReader({ project }: BlueprintReaderProps) {
   const [scrollProgress, setScrollProgress] = useState(0);
   const [copiedSpec, setCopiedSpec] = useState(false);
+  const [copiedShare, setCopiedShare] = useState(false);
+  const [copiedSectionId, setCopiedSectionId] = useState<string | null>(null);
+  const [activeId, setActiveId] = useState<string>("");
 
   const techStack = parseTechStack(project.tech_stack);
   const specHash = `SPEC-${project.id
@@ -135,10 +176,45 @@ export default function BlueprintReader({ project }: BlueprintReaderProps) {
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
-  const handleCopySpec = () => {
-    navigator.clipboard.writeText(project.spec_markdown || "");
+  // Initial mount hash detection & scroll restoration
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.location.hash) {
+      const targetId = window.location.hash.replace(/^#/, "");
+      const timer = setTimeout(() => {
+        const el = document.getElementById(targetId);
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth" });
+          setActiveId(targetId);
+        }
+      }, 200);
+      return () => clearTimeout(timer);
+    }
+  }, []);
+
+  const handleCopySpec = async () => {
+    await copyToClipboard(project.spec_markdown || "");
     setCopiedSpec(true);
     setTimeout(() => setCopiedSpec(false), 2000);
+  };
+
+  const handleShareLink = async () => {
+    if (typeof window !== "undefined") {
+      const url = window.location.href;
+      await copyToClipboard(url);
+      setCopiedShare(true);
+      setTimeout(() => setCopiedShare(false), 2000);
+    }
+  };
+
+  const handleCopySectionLink = async (id: string) => {
+    if (typeof window !== "undefined") {
+      const url = `${window.location.origin}${window.location.pathname}#${id}`;
+      await copyToClipboard(url);
+      window.history.replaceState(null, "", `#${id}`);
+      setActiveId(id);
+      setCopiedSectionId(id);
+      setTimeout(() => setCopiedSectionId(null), 2000);
+    }
   };
 
   const handleDownloadMd = () => {
@@ -190,7 +266,6 @@ export default function BlueprintReader({ project }: BlueprintReaderProps) {
     return extracted;
   }, [cleanMarkdown]);
 
-  const [activeId, setActiveId] = useState<string>("");
   const currentActiveId = activeId || (headings[0]?.id ?? "");
 
   useEffect(() => {
@@ -225,6 +300,9 @@ export default function BlueprintReader({ project }: BlueprintReaderProps) {
     if (el) {
       el.scrollIntoView({ behavior: "smooth" });
       setActiveId(id);
+      if (typeof window !== "undefined") {
+        window.history.replaceState(null, "", `#${id}`);
+      }
     }
   };
 
@@ -300,12 +378,28 @@ export default function BlueprintReader({ project }: BlueprintReaderProps) {
             const current = headings[headingIdx];
             const id = current?.id || slugify(getNodeText(props.children)) || "section";
             headingIdx++;
+            const headingText = getNodeText(props.children);
             return (
               <h2
                 id={id}
-                className="scroll-mt-32 text-xl sm:text-2xl font-medium tracking-tight text-zinc-100 pb-2 border-b border-white/[0.06] mt-8 mb-3"
+                className="group relative scroll-mt-32 text-xl sm:text-2xl font-medium tracking-tight text-zinc-100 pb-2 border-b border-white/[0.06] mt-8 mb-3"
               >
-                {props.children}
+                <span className="flex items-center justify-between gap-3">
+                  <span>{props.children}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleCopySectionLink(id)}
+                    aria-label={`Copy link to section: ${headingText}`}
+                    title="Copy link to section"
+                    className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity p-1 text-zinc-500 hover:text-cyan-400 rounded min-h-[44px] min-w-[44px] flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+                  >
+                    {copiedSectionId === id ? (
+                      <Check className="h-4 w-4 text-emerald-400" />
+                    ) : (
+                      <Hash className="h-4 w-4" />
+                    )}
+                  </button>
+                </span>
               </h2>
             );
           },
@@ -313,12 +407,28 @@ export default function BlueprintReader({ project }: BlueprintReaderProps) {
             const current = headings[headingIdx];
             const id = current?.id || slugify(getNodeText(props.children)) || "section";
             headingIdx++;
+            const headingText = getNodeText(props.children);
             return (
               <h3
                 id={id}
-                className="scroll-mt-32 text-lg font-medium tracking-tight text-zinc-200 mt-6 mb-2"
+                className="group relative scroll-mt-32 text-lg font-medium tracking-tight text-zinc-200 mt-6 mb-2"
               >
-                {props.children}
+                <span className="flex items-center justify-between gap-3">
+                  <span>{props.children}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleCopySectionLink(id)}
+                    aria-label={`Copy link to section: ${headingText}`}
+                    title="Copy link to section"
+                    className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity p-1 text-zinc-500 hover:text-cyan-400 rounded min-h-[44px] min-w-[44px] flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+                  >
+                    {copiedSectionId === id ? (
+                      <Check className="h-3.5 w-3.5 text-emerald-400" />
+                    ) : (
+                      <Hash className="h-3.5 w-3.5" />
+                    )}
+                  </button>
+                </span>
               </h3>
             );
           },
@@ -356,7 +466,7 @@ export default function BlueprintReader({ project }: BlueprintReaderProps) {
         {cleanMarkdown || "*No specification markdown content available.*"}
       </ReactMarkdown>
     );
-  }, [cleanMarkdown, headings]);
+  }, [cleanMarkdown, headings, copiedSectionId]);
 
   return (
     <div className="min-h-screen bg-[#08080a] text-zinc-200 flex flex-col relative">
@@ -389,8 +499,27 @@ export default function BlueprintReader({ project }: BlueprintReaderProps) {
           {/* Quick-Action Buttons */}
           <div className="flex items-center gap-2">
             <button
+              onClick={handleShareLink}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono font-medium bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-white/[0.08] transition-all min-h-[36px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
+              aria-label="Copy direct blueprint link"
+            >
+              {copiedShare ? (
+                <>
+                  <Check className="h-3.5 w-3.5 text-emerald-400" />
+                  <span className="text-emerald-400">Copied Link</span>
+                </>
+              ) : (
+                <>
+                  <Share2 className="h-3.5 w-3.5 text-zinc-400" />
+                  <span className="hidden sm:inline">Share Link</span>
+                  <span className="sm:hidden">Share</span>
+                </>
+              )}
+            </button>
+
+            <button
               onClick={handleCopySpec}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono font-medium bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-white/[0.08] transition-all"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono font-medium bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-white/[0.08] transition-all min-h-[36px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
             >
               {copiedSpec ? (
                 <>
@@ -407,13 +536,24 @@ export default function BlueprintReader({ project }: BlueprintReaderProps) {
 
             <button
               onClick={handleDownloadMd}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono font-medium bg-cyan-950/40 hover:bg-cyan-950/70 text-cyan-300 hover:text-cyan-200 border border-cyan-800/50 transition-all"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono font-medium bg-cyan-950/40 hover:bg-cyan-950/70 text-cyan-300 hover:text-cyan-200 border border-cyan-800/50 transition-all min-h-[36px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
             >
               <Download className="h-3.5 w-3.5 text-cyan-400" />
               <span className="hidden sm:inline">Download .md</span>
               <span className="sm:hidden">.md</span>
             </button>
           </div>
+        </div>
+
+        {/* Screen Reader Live Region for Copy Feedback */}
+        <div className="sr-only" aria-live="polite">
+          {copiedSectionId
+            ? "Link to section copied to clipboard"
+            : copiedShare
+            ? "Blueprint link copied to clipboard"
+            : copiedSpec
+            ? "Raw specification copied to clipboard"
+            : ""}
         </div>
       </header>
 
