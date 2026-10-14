@@ -29,3 +29,97 @@ body {
     scroll-behavior: auto !important;
   }
 }
+
+@media print {
+  @page {
+    margin: 1.5cm;
+    size: A4 portrait;
+  }
+
+  html,
+  body,
+  main,
+  article,
+  section,
+  div {
+    background-color: #ffffff !important;
+    color: #111827 !important;
+  }
+
+  header,
+  nav,
+  aside,
+  footer,
+  .print\:hidden {
+    display: none !important;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    break-after: avoid !important;
+    page-break-after: avoid !important;
+    color: #111827 !important;
+  }
+
+  pre,
+  code,
+  table,
+  tr,
+  figure,
+  blockquote,
+  .break-inside-avoid,
+  .print-avoid-break,
+  [data-print-avoid-break] {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  pre,
+  code {
+    background-color: #f3f4f6 !important;
+    color: #111827 !important;
+    border-color: #e5e7eb !important;
+  }
+
+  pre code {
+    background-color: transparent !important;
+    border: none !important;
+    padding: 0 !important;
+  }
+
+  code:not(pre code) {
+    background-color: #f3f4f6 !important;
+    color: #111827 !important;
+    padding: 0.125rem 0.25rem !important;
+    border: 1px solid #e5e7eb !important;
+    border-radius: 0.25rem !important;
+  }
+
+  table {
+    border-collapse: collapse !important;
+    width: 100% !important;
+  }
+
+  th {
+    background-color: #f3f4f6 !important;
+    color: #111827 !important;
+    border: 1px solid #e5e7eb !important;
+  }
+
+  td {
+    color: #1f2937 !important;
+    border: 1px solid #e5e7eb !important;
+  }
+
+  div,
+  section,
+  article,
+  span {
+    border-color: #e5e7eb !important;
+  }
+}
+

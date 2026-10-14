@@ -1,40 +1,46 @@
-# Build Report: Task 5.1 - CI Lockfile Integration
+# Build Report: Task 5.2 - Desktop Web Reading & Study Refinements
 
 ## Summary
-- **Task ID**: 5.1
+- **Task ID**: 5.2
 - **Status**: BUILT
-- **Target**: Pin GitHub Actions CI workflow caching and dependency installation to the deterministic `requirements.lock`, synchronize setup instructions and test counts in `README.md`, and verify hermetic tests and web compilation.
+- **Target**: Implement desktop reading and offline study enhancements in `web/`, featuring a dedicated `@media print` stylesheet with A4 page sizing and dark-to-light theme inversion, page-break controls for code and solo depth sections, print-suppressed navigation chrome, an accessible keyboard shortcuts cheat sheet dialog (`?`, `p`/`Ctrl+P`, `Esc`), and print trigger action buttons.
 
 ---
 
 ## 1. Deliverables & Changes
 
-### 1.1 GitHub Actions Workflow (`.github/workflows/scraper_cron.yml`)
-- Updated `astral-sh/setup-uv@v5` cache invalidation glob to track `requirements.lock`:
-  ```yaml
-  - name: Set up uv
-    uses: astral-sh/setup-uv@v5
-    with:
-      enable-cache: true
-      cache-dependency-glob: "requirements.lock"
-  ```
-- Switched CI dependency installation step from loose `requirements.txt` to frozen lockfile:
-  ```yaml
-  - name: Install dependencies
-    run: |
-      uv venv
-      uv pip install -r requirements.lock
-  ```
-- Ensures identical frozen package versions across both local developer environments and remote Ubuntu CI runners without risk of transitive upstream drift.
+### 1.1 Global Print Stylesheet (`web/src/app/globals.css`)
+- Added comprehensive `@media print` stylesheet:
+  - **Page Layout**: Set `@page { margin: 1.5cm; size: A4 portrait; }`.
+  - **Theme Inversion**: Forced clean white backgrounds (`#ffffff`) and dark text (`#111827`) for `body`, `main`, `article`, `section`, and card containers.
+  - **Chrome Suppression**: Hidden headers, navbars, aside TOCs, footers, reading progress bars, and all `.print\:hidden` utility elements.
+  - **Page-Break Hygiene**: Prevented fractures inside `pre`, `code`, `table`, `tr`, `figure`, `blockquote`, `.break-inside-avoid`, `.print-avoid-break`, and `[data-print-avoid-break]`.
+  - **Heading Orphan Prevention**: Added `break-after: avoid !important; page-break-after: avoid !important;` across `h1` through `h6`.
+  - **Code Blocks**: Light gray background (`#f3f4f6`), high-contrast border (`#e5e7eb`), and dark monospace text (`#111827`).
 
-### 1.2 Documentation Synchronization (`README.md`)
-- Updated backend setup command from `uv pip install -r requirements.txt` to `uv pip install -r requirements.lock`.
-- Synchronized hermetic test count reference from `(128 tests)` to `(199 tests)`.
+### 1.2 Blueprint Reader Actions & Keyboard Shortcuts (`web/src/components/BlueprintReader.tsx`)
+- **Lucide Icons**: Imported `Keyboard`, `Printer`, and `X`.
+- **Keyboard Listener**: Added `useEffect` handling global key events:
+  - Bypasses events when user focus is in `input`, `textarea`, or `contentEditable` elements.
+  - `?`: Toggles keyboard shortcuts cheat sheet dialog.
+  - `p` / `P`: Calls `window.print()` when dialogs are closed.
+  - `Escape`: Closes open shortcuts dialog.
+- **Header Actions**:
+  - Added "Print / Save PDF" button calling `window.print()` with `print:hidden`.
+  - Added "Keyboard shortcuts" help button with `?` badge and `print:hidden`.
+- **Accessible Modal Dialog**:
+  - Implemented dialog with `role="dialog"`, `aria-modal="true"`, and `aria-labelledby="shortcuts-dialog-title"`.
+  - Backdrop overlay with click-to-dismiss and stop-propagation on card.
+  - Accessible close button with `X` icon, minimum 36px touch target, and `aria-label`.
+  - Matrix table covering `?`, `p` / `Ctrl+P`, `Esc`, `Tab` / `Shift+Tab`, `Space` / `Enter`.
+- **Print Hygiene**:
+  - Added `print:hidden` to code block copy buttons, section link copy buttons, mobile TOC, bottom navigation, and footer.
 
-### 1.3 Task Ledger (`docs/contexts/task-ledger.md`)
-- Added Phase 5 header ("Phase 5: Production Operations, Automation & Reliability").
-- Logged Task 5.1 completion entry.
-- Cleaned a legacy em dash in line 83 to ensure antislop compliance.
+### 1.3 Navbar Print Suppression (`web/src/components/Navbar.tsx`)
+- Added `print:hidden` to the persistent top navigation bar `<header>`.
+
+### 1.4 Task Ledger (`docs/contexts/task-ledger.md`)
+- Logged Task 5.2 completion under Phase 5.
 
 ---
 
@@ -42,20 +48,20 @@
 
 ### 2.1 Python Hermetic Tests
 - Command: `uv run python -m unittest discover tests`
-- Result: **199 passed in 15.006s** (OK, 0 failures, 0 errors).
-- All tests executed hermetically with mocked external clients and zero live network requests.
+- Result: **199 passed in 15.131s** (OK, 0 failures, 0 errors).
+- All tests executed hermetically with zero external network requests.
 
 ### 2.2 Next.js Web Build
 - Commands: `cd web; npm run lint ; npm run build`
 - Result:
   - `eslint`: 0 warnings, 0 errors.
-  - `next build` (Next.js 16.4.0 Turbopack): Compiled in 2.3s, TypeScript checked in 7.0s, all static and dynamic routes generated successfully.
+  - `next build` (Next.js 16.4.0 Turbopack): Compiled in 2.9s, TypeScript checked in 5.8s, all static and dynamic pages generated cleanly.
 
 ### 2.3 Style & Antislop Compliance
-- Audited all modified files (`.github/workflows/scraper_cron.yml`, `README.md`, `docs/contexts/task-ledger.md`, and `build-report.md`) for em dashes (`\u2014`).
+- Scanned all modified files (`globals.css`, `Navbar.tsx`, `BlueprintReader.tsx`, `task-ledger.md`, and this report) for em dashes (`\u2014`).
 - Count: 0 em dashes found.
 
 ---
 
 ## 3. What Was NOT Verified
-- Remote GitHub Actions execution of `.github/workflows/scraper_cron.yml`, as pushing to git or invoking `gh workflow run` is restricted by repository safety rules and requires explicit user authorization.
+- Physical hardware printer output (validated via CSS media query rules, print utility classes, and browser DOM rendering).

@@ -16,9 +16,12 @@ import {
   Download,
   Gauge,
   Hash,
+  Keyboard,
   List,
+  Printer,
   Share2,
   Sparkles,
+  X,
 } from "lucide-react";
 import type { GeneratedProject } from "@/lib/turso";
 import { formatDate, parseTechStack } from "@/lib/format";
@@ -103,7 +106,7 @@ function CodeBlockComponent({
   };
 
   return (
-    <div className="relative my-6 rounded-xl border border-white/[0.08] bg-[#0c0d12] overflow-hidden shadow-2xl">
+    <div className="relative my-6 rounded-xl border border-white/[0.08] bg-[#0c0d12] overflow-hidden shadow-2xl break-inside-avoid print-avoid-break">
       {/* Terminal Header Bar */}
       <div className="flex items-center justify-between px-4 py-2.5 bg-zinc-900 border-b border-white/[0.06] select-none">
         <div className="flex items-center gap-2">
@@ -122,7 +125,7 @@ function CodeBlockComponent({
 
         <button
           onClick={onCopy}
-          className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-mono text-zinc-400 hover:text-white bg-zinc-800/60 hover:bg-zinc-800 border border-white/[0.06] transition-colors min-h-[36px] sm:min-h-[32px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-900"
+          className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-mono text-zinc-400 hover:text-white bg-zinc-800/60 hover:bg-zinc-800 border border-white/[0.06] transition-colors min-h-[36px] sm:min-h-[32px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-900 print:hidden"
           title="Copy code snippet"
           aria-label={`Copy ${language || "code"} snippet`}
         >
@@ -159,12 +162,52 @@ export default function BlueprintReader({ project }: BlueprintReaderProps) {
   const [copiedShare, setCopiedShare] = useState(false);
   const [copiedSectionId, setCopiedSectionId] = useState<string | null>(null);
   const [activeId, setActiveId] = useState<string>("");
+  const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
 
   const techStack = parseTechStack(project.tech_stack);
   const specHash = `SPEC-${project.id
     .toString(16)
     .padStart(4, "0")
     .toUpperCase()}`;
+
+  // Global keyboard shortcuts: '?' toggles help dialog, 'p'/'P' prints, 'Escape' closes modal
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const activeEl = document.activeElement;
+      if (
+        activeEl &&
+        (activeEl.tagName === "INPUT" ||
+          activeEl.tagName === "TEXTAREA" ||
+          (activeEl as HTMLElement).isContentEditable)
+      ) {
+        return;
+      }
+
+      if (e.key === "?") {
+        e.preventDefault();
+        setIsShortcutsOpen((prev) => !prev);
+        return;
+      }
+
+      if (e.key === "Escape") {
+        if (isShortcutsOpen) {
+          e.preventDefault();
+          setIsShortcutsOpen(false);
+        }
+        return;
+      }
+
+      if ((e.key === "p" || e.key === "P") && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        if (!isShortcutsOpen) {
+          e.preventDefault();
+          window.print();
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isShortcutsOpen]);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -393,7 +436,7 @@ export default function BlueprintReader({ project }: BlueprintReaderProps) {
                     onClick={() => handleCopySectionLink(id)}
                     aria-label={`Copy link to section: ${headingText}`}
                     title="Copy link to section"
-                    className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity p-1 text-zinc-500 hover:text-cyan-400 rounded min-h-[44px] min-w-[44px] flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+                    className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity p-1 text-zinc-500 hover:text-cyan-400 rounded min-h-[44px] min-w-[44px] flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 print:hidden"
                   >
                     {copiedSectionId === id ? (
                       <Check className="h-4 w-4 text-emerald-400" />
@@ -422,7 +465,7 @@ export default function BlueprintReader({ project }: BlueprintReaderProps) {
                     onClick={() => handleCopySectionLink(id)}
                     aria-label={`Copy link to section: ${headingText}`}
                     title="Copy link to section"
-                    className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity p-1 text-zinc-500 hover:text-cyan-400 rounded min-h-[44px] min-w-[44px] flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+                    className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity p-1 text-zinc-500 hover:text-cyan-400 rounded min-h-[44px] min-w-[44px] flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 print:hidden"
                   >
                     {copiedSectionId === id ? (
                       <Check className="h-3.5 w-3.5 text-emerald-400" />
@@ -487,7 +530,7 @@ export default function BlueprintReader({ project }: BlueprintReaderProps) {
   return (
     <div className="min-h-screen bg-[#08080a] text-zinc-200 flex flex-col relative">
       {/* 1. Sticky Reading Progress Bar */}
-      <div className="fixed top-0 left-0 right-0 h-[2px] z-[60] bg-zinc-900 pointer-events-none">
+      <div className="fixed top-0 left-0 right-0 h-[2px] z-[60] bg-zinc-900 pointer-events-none print:hidden">
         <div
           className="h-full bg-gradient-to-r from-cyan-500 via-sky-400 to-indigo-500 transition-all duration-75 motion-reduce:transition-none"
           style={{ width: `${scrollProgress}%` }}
@@ -495,7 +538,7 @@ export default function BlueprintReader({ project }: BlueprintReaderProps) {
       </div>
 
       {/* 2. Sticky Action Sub-Header (P1-3: sticky top-16 so it does not slide under top-0 Navbar) */}
-      <header className="sticky top-16 z-40 bg-[#08080a] border-b border-white/[0.07]">
+      <header className="sticky top-16 z-40 bg-[#08080a] border-b border-white/[0.07] print:hidden">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 h-14 flex items-center justify-between">
           {/* Breadcrumb Navigation */}
           <div className="flex items-center gap-3">
@@ -516,7 +559,7 @@ export default function BlueprintReader({ project }: BlueprintReaderProps) {
           <div className="flex items-center gap-2">
             <button
               onClick={handleShareLink}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono font-medium bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-white/[0.08] transition-all min-h-[36px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono font-medium bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-white/[0.08] transition-all min-h-[36px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 print:hidden"
               aria-label="Copy direct blueprint link"
             >
               {copiedShare ? (
@@ -535,7 +578,7 @@ export default function BlueprintReader({ project }: BlueprintReaderProps) {
 
             <button
               onClick={handleCopySpec}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono font-medium bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-white/[0.08] transition-all min-h-[36px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono font-medium bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-white/[0.08] transition-all min-h-[36px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 print:hidden"
             >
               {copiedSpec ? (
                 <>
@@ -552,11 +595,32 @@ export default function BlueprintReader({ project }: BlueprintReaderProps) {
 
             <button
               onClick={handleDownloadMd}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono font-medium bg-cyan-950/40 hover:bg-cyan-950/70 text-cyan-300 hover:text-cyan-200 border border-cyan-800/50 transition-all min-h-[36px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono font-medium bg-cyan-950/40 hover:bg-cyan-950/70 text-cyan-300 hover:text-cyan-200 border border-cyan-800/50 transition-all min-h-[36px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 print:hidden"
             >
               <Download className="h-3.5 w-3.5 text-cyan-400" />
               <span className="hidden sm:inline">Download .md</span>
               <span className="sm:hidden">.md</span>
+            </button>
+
+            <button
+              onClick={() => window.print()}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono font-medium bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-white/[0.08] transition-all min-h-[36px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 print:hidden"
+              title="Print or save as PDF (P or Ctrl+P)"
+              aria-label="Print blueprint or save as PDF"
+            >
+              <Printer className="h-3.5 w-3.5 text-zinc-400" />
+              <span className="hidden sm:inline">Print / PDF</span>
+              <span className="sm:hidden">Print</span>
+            </button>
+
+            <button
+              onClick={() => setIsShortcutsOpen(true)}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-mono font-medium bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-white/[0.08] transition-all min-h-[36px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 print:hidden"
+              title="Keyboard shortcuts (?)"
+              aria-label="Open keyboard shortcuts cheat sheet"
+            >
+              <Keyboard className="h-3.5 w-3.5 text-zinc-400" />
+              <span className="hidden md:inline text-[11px] px-1 py-0.5 rounded bg-zinc-800 border border-white/[0.06] text-cyan-400 font-mono">?</span>
             </button>
           </div>
         </div>
@@ -695,7 +759,7 @@ export default function BlueprintReader({ project }: BlueprintReaderProps) {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 flex-1 w-full bg-[#08080a]">
         {/* Mobile Jump Menu (R-03) */}
         {headings.length > 0 && (
-          <div className="lg:hidden mb-8 p-3 rounded-xl border border-white/[0.08] bg-[#0c0d12]/90 backdrop-blur-md">
+          <div className="lg:hidden mb-8 p-3 rounded-xl border border-white/[0.08] bg-[#0c0d12]/90 backdrop-blur-md print:hidden">
             <details className="group">
               <summary className="flex items-center justify-between cursor-pointer text-xs font-mono text-zinc-300 select-none py-1 min-h-[44px]">
                 <span className="flex items-center gap-2">
@@ -742,7 +806,7 @@ export default function BlueprintReader({ project }: BlueprintReaderProps) {
 
           {/* Sticky Desktop TOC */}
           {headings.length > 0 && (
-            <aside className="hidden lg:block sticky top-36 max-h-[calc(100vh-10rem)] overflow-y-auto p-4 rounded-xl border border-white/[0.08] bg-[#0c0d12]/90 backdrop-blur-md">
+            <aside className="hidden lg:block sticky top-36 max-h-[calc(100vh-10rem)] overflow-y-auto p-4 rounded-xl border border-white/[0.08] bg-[#0c0d12]/90 backdrop-blur-md print:hidden">
               <h3 className="text-xs font-mono uppercase tracking-wider text-zinc-400 mb-3 flex items-center gap-1.5 pb-2 border-b border-white/[0.06]">
                 <List className="h-3.5 w-3.5 text-cyan-400" />
                 <span>Table of Contents</span>
@@ -776,7 +840,7 @@ export default function BlueprintReader({ project }: BlueprintReaderProps) {
         </div>
 
         {/* Bottom Navigation */}
-        <div className="mt-12 pt-6 border-t border-white/[0.07] flex items-center justify-between">
+        <div className="mt-12 pt-6 border-t border-white/[0.07] flex items-center justify-between print:hidden">
           <Link
             href="/"
             className="inline-flex items-center gap-2 text-sm text-zinc-400 hover:text-cyan-400 font-medium transition-colors group min-h-[44px]"
@@ -794,11 +858,109 @@ export default function BlueprintReader({ project }: BlueprintReaderProps) {
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-white/[0.07] bg-[#08080a] py-6 text-center text-xs text-zinc-500 font-mono">
+      <footer className="border-t border-white/[0.07] bg-[#08080a] py-6 text-center text-xs text-zinc-500 font-mono print:hidden">
         <div className="max-w-4xl mx-auto px-4">
           JHUNT ARCHITECTURE ENGINE &bull; PORTFOLIO ARCHITECTURE SPECIFICATION
         </div>
       </footer>
+
+      {/* 5. Accessible Keyboard Shortcuts Modal Dialog */}
+      {isShortcutsOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm print:hidden"
+          onClick={() => setIsShortcutsOpen(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="shortcuts-dialog-title"
+        >
+          <div
+            className="w-full max-w-md rounded-xl bg-zinc-900 border border-white/[0.1] shadow-2xl p-6 relative animate-in fade-in zoom-in-95 duration-150"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between pb-4 border-b border-white/[0.08]">
+              <div className="flex items-center gap-2">
+                <Keyboard className="h-5 w-5 text-cyan-400" />
+                <h2
+                  id="shortcuts-dialog-title"
+                  className="text-base font-semibold text-zinc-100 tracking-tight"
+                >
+                  Keyboard Shortcuts
+                </h2>
+              </div>
+              <button
+                onClick={() => setIsShortcutsOpen(false)}
+                className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 border border-transparent hover:border-white/[0.06] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 min-h-[36px] min-w-[36px] flex items-center justify-center"
+                aria-label="Close keyboard shortcuts dialog"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              <div className="flex items-center justify-between py-1.5 border-b border-white/[0.04]">
+                <span className="text-xs text-zinc-300">Toggle shortcuts guide</span>
+                <kbd className="px-2 py-0.5 text-xs font-mono font-semibold rounded bg-zinc-800 text-cyan-300 border border-white/[0.1]">
+                  ?
+                </kbd>
+              </div>
+              <div className="flex items-center justify-between py-1.5 border-b border-white/[0.04]">
+                <span className="text-xs text-zinc-300">Print blueprint / Save PDF</span>
+                <div className="flex items-center gap-1">
+                  <kbd className="px-2 py-0.5 text-xs font-mono font-semibold rounded bg-zinc-800 text-cyan-300 border border-white/[0.1]">
+                    p
+                  </kbd>
+                  <span className="text-zinc-500 text-xs">/</span>
+                  <kbd className="px-2 py-0.5 text-xs font-mono font-semibold rounded bg-zinc-800 text-cyan-300 border border-white/[0.1]">
+                    Ctrl+P
+                  </kbd>
+                </div>
+              </div>
+              <div className="flex items-center justify-between py-1.5 border-b border-white/[0.04]">
+                <span className="text-xs text-zinc-300">Close modal dialog</span>
+                <kbd className="px-2 py-0.5 text-xs font-mono font-semibold rounded bg-zinc-800 text-cyan-300 border border-white/[0.1]">
+                  Esc
+                </kbd>
+              </div>
+              <div className="flex items-center justify-between py-1.5 border-b border-white/[0.04]">
+                <span className="text-xs text-zinc-300">Navigate interactive controls</span>
+                <div className="flex items-center gap-1">
+                  <kbd className="px-2 py-0.5 text-xs font-mono font-semibold rounded bg-zinc-800 text-cyan-300 border border-white/[0.1]">
+                    Tab
+                  </kbd>
+                  <span className="text-zinc-500 text-xs">/</span>
+                  <kbd className="px-2 py-0.5 text-xs font-mono font-semibold rounded bg-zinc-800 text-cyan-300 border border-white/[0.1]">
+                    Shift+Tab
+                  </kbd>
+                </div>
+              </div>
+              <div className="flex items-center justify-between py-1.5">
+                <span className="text-xs text-zinc-300">Toggle checklist / Trigger action</span>
+                <div className="flex items-center gap-1">
+                  <kbd className="px-2 py-0.5 text-xs font-mono font-semibold rounded bg-zinc-800 text-cyan-300 border border-white/[0.1]">
+                    Space
+                  </kbd>
+                  <span className="text-zinc-500 text-xs">/</span>
+                  <kbd className="px-2 py-0.5 text-xs font-mono font-semibold rounded bg-zinc-800 text-cyan-300 border border-white/[0.1]">
+                    Enter
+                  </kbd>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-6 pt-3 border-t border-white/[0.06] flex items-center justify-between">
+              <span className="text-[11px] font-mono text-zinc-500">
+                Press Esc or click outside to dismiss
+              </span>
+              <button
+                onClick={() => setIsShortcutsOpen(false)}
+                className="px-3.5 py-1.5 rounded-lg text-xs font-medium bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-white/[0.08] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 min-h-[36px]"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
