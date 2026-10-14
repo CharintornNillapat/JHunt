@@ -211,9 +211,9 @@ CREATE INDEX IF NOT EXISTS idx_projects_role ON generated_projects (target_role)
 # Set up virtual environment and install dependencies
 uv venv
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-uv pip install -r requirements.txt
+uv pip install -r requirements.lock
 
-# Execute hermetic test suite (128 tests)
+# Execute hermetic test suite (199 tests)
 uv run python -m unittest discover tests
 
 # Run ingestion pipeline across all scrapers (limit 30 records)

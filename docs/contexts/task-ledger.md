@@ -80,7 +80,7 @@ Elevate `JHunt` from a keyword scraper and Telegram alerter into a production-gr
 - [x] Verify generated Markdown file writes successfully to the target Windows path:
   `C:\Users\MRmar\Desktop\Mid years projects\Ideas\Real-world-tech-industrial-insight-for-building-project\2026-10-10_backend-engineer_idempotent-payment-orchestrator-promptpay-webhook-engine.md`.
 - [x] Perform documentation overhaul on `README.md` (architecture flow, engineering highlights, CLI guide, setup instructions).
-- [x] Run complete repository test suite (`python -m unittest discover tests` — 41 tests passing).
+- [x] Run complete repository test suite (`python -m unittest discover tests`: 41 tests passing).
 - [x] Update `docs/contexts/task-ledger.md` with final execution status (100% Complete).
 
 ### Phase 7: Scale, Performance & Cloud Architecture Upgrades
@@ -129,6 +129,9 @@ Elevate `JHunt` from a keyword scraper and Telegram alerter into a production-gr
 - [x] **Task 4.1: Blueprint Provenance & Source Attribution** (`source`/`provenance` tracking for LLM vs offline fallback in schema, storage, generator, and web badges).
 - [x] **Task 4.2: Actionable Solo Blueprint Schema Depth** (`acceptance_tests`, `walking_skeleton`, and `out_of_scope` in schemas, ideation prompt, fallback archetypes, exporter, and dark-themed checklist UI).
 - [x] **Task 4.3: Deterministic Dependency Lockfile via uv pip compile** (Universal lockfile `requirements.lock` compiled with `--universal`, `AGENTS.md` setup commands updated, hermetic test suite passing).
+
+#### Phase 5: Production Operations, Automation & Reliability (P5)
+- [x] **Task 5.1: CI Lockfile Integration in .github/workflows/scraper_cron.yml** (Pin CI uv dependency caching and installation to requirements.lock, align README setup commands).
 
 ---
 

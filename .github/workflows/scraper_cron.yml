@@ -47,7 +47,7 @@ jobs:
         uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-          cache-dependency-glob: "requirements.txt"
+          cache-dependency-glob: "requirements.lock"
 
       - name: Set up Python
         run: uv python install 3.11
@@ -55,7 +55,7 @@ jobs:
       - name: Install dependencies
         run: |
           uv venv
-          uv pip install -r requirements.txt
+          uv pip install -r requirements.lock
 
       # ── 5. Gate on the unit tests ─────────────────────────────────
       # Runs without secrets: every external client is mocked or disabled.
