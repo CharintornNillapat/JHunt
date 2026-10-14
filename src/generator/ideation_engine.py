@@ -32,8 +32,8 @@ Every section must be concrete enough to build from:
 - contracts: typed request, response and event models (Pydantic or OpenAPI) with status codes. Webhook retry responses must use HTTP 5xx (e.g. 503 Service Unavailable) or 409 Conflict, and NEVER 422 Unprocessable Entity (senders treat 4xx as terminal client errors and drop the event).
 - database_schema: tables, keys and the constraints that enforce the core invariant. On failures, status updates (e.g. recording a FAILED state or dead-letter row) must be committed in an autonomous or independent transaction before or outside the main rollback so the failure state is preserved.
 - failure_modes: concrete failures (duplicate delivery, crash between two writes, dependency down, malformed input) and how the system detects and recovers from each.
-- verification: falsifiable checks runnable locally with pytest, Locust or Playwright, stated as counts or invariants (for example "100 duplicate deliveries produce exactly 1 ledger row"). Verification checks must hold true under any request interleaving (no flaky assumptions about scheduling order). For in-test concurrency, specify asyncio.gather with httpx.AsyncClient or a thread pool; never rely on pytest-xdist for in-test concurrency assertions.
-- out_of_scope: the tempting additions you deliberately excluded.
+- acceptance_tests: 3 to 5 falsifiable checks runnable locally with pytest, Locust or Playwright, stated as counts or invariants (for example "100 duplicate deliveries produce exactly 1 ledger row"). Verification checks must hold true under any request interleaving (no flaky assumptions about scheduling order). For in-test concurrency, specify asyncio.gather with httpx.AsyncClient or a thread pool; never rely on pytest-xdist for in-test concurrency assertions.
+- out_of_scope: 3 to 5 tempting additions deliberately excluded to keep the project buildable by one developer on a laptop in two to four weeks.
 
 Forbidden:
 - Latency percentiles, throughput figures, user counts or uptime numbers as targets or facts.
@@ -89,7 +89,7 @@ _BACKEND_FALLBACK = ProjectIdeaSpec(
             recovery="Reject on HMAC mismatch or a timestamp outside the allowed window, before any database write",
         ),
     ],
-    verification=[
+    acceptance_tests=[
         "pytest: posting the same event 100 times yields exactly 1 ledger row",
         "pytest: 20 concurrent requests for one event_id (asyncio.gather against a test Postgres) yield exactly 1 ledger row",
         "pytest: killing the process between the event insert and the ledger write, then restarting, yields exactly 1 ledger row",
@@ -152,7 +152,7 @@ _DATA_FALLBACK = ProjectIdeaSpec(
             recovery="Order by recorded_at at read time; never infer order from arrival",
         ),
     ],
-    verification=[
+    acceptance_tests=[
         "pytest: a batch of 50 pings with 1 malformed stores 49 rows and 1 dead letter",
         "pytest: sending the same batch twice leaves 49 rows",
         "pytest: a shuffled batch returns a track sorted by recorded_at",
@@ -205,7 +205,7 @@ _FRONTEND_FALLBACK = ProjectIdeaSpec(
             recovery="The IndexedDB outbox persists and is flushed on the next load",
         ),
     ],
-    verification=[
+    acceptance_tests=[
         "Playwright: assign while offline, go online, and exactly 1 applied_actions row exists",
         "Vitest: sending the same action twice returns 'applied' then 'duplicate'",
         "Playwright: two contexts assigning one order produce 1 'applied' and 1 'conflict'",

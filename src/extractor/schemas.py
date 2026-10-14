@@ -4,7 +4,7 @@ Pydantic schemas for structured job market extraction and portfolio ideation.
 Built with Pydantic v2 for strict type safety and Gemini structured output compliance.
 """
 from typing import List
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 
 class ExtractedJob(BaseModel):
@@ -87,7 +87,11 @@ class ProjectIdeaSpec(BaseModel):
     Buildable portfolio project spec: one core engineering problem, one service,
     one datastore, and checks a single developer can run locally.
     """
-    model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
+    model_config = ConfigDict(
+        extra="ignore",
+        str_strip_whitespace=True,
+        populate_by_name=True,
+    )
 
     title: str = Field(..., description="Specific project title naming the core problem")
     domain_industry: str = Field(..., description="Thailand business context (e.g. 'FinTech / PromptPay payments')")
@@ -97,7 +101,7 @@ class ProjectIdeaSpec(BaseModel):
     )
     target_tech_stack: List[str] = Field(
         default_factory=list,
-        description="Only the technologies the core problem needs",
+        description="Only the technologies the core problem needs, without version numbers",
     )
     system_boundary: str = Field(
         ...,
@@ -105,7 +109,7 @@ class ProjectIdeaSpec(BaseModel):
     )
     walking_skeleton: List[str] = Field(
         default_factory=list,
-        description="Ordered build steps. Step 1 is a thin end-to-end slice that runs locally; each later step adds one capability",
+        description="Ordered build steps (typically 3 to 7). Step 1 is a thin end-to-end slice that runs locally; each later step adds one capability",
     )
     contracts: str = Field(
         ...,
@@ -113,12 +117,25 @@ class ProjectIdeaSpec(BaseModel):
     )
     database_schema: str = Field(..., description="Tables, keys and constraints that enforce the core invariant")
     failure_modes: List[FailureMode] = Field(default_factory=list)
-    verification: List[str] = Field(
+    acceptance_tests: List[str] = Field(
         default_factory=list,
-        description="Falsifiable local checks (pytest, Locust, Playwright) with concrete pass conditions such as counts or invariants. No latency or throughput targets",
+        validation_alias=AliasChoices("acceptance_tests", "verification"),
+        description="3 to 5 falsifiable local checks (pytest, Locust, Playwright) with concrete pass conditions such as counts or invariants. No latency percentiles or throughput targets",
     )
-    out_of_scope: List[str] = Field(default_factory=list, description="Tempting additions deliberately excluded")
+    out_of_scope: List[str] = Field(
+        default_factory=list,
+        description="Tempting additions deliberately excluded to keep the project buildable by one developer in 2 to 4 weeks",
+    )
     difficulty: str = Field(
         default="Intermediate",
         description="'Junior', 'Intermediate', or 'Advanced'",
     )
+
+    @property
+    def verification(self) -> List[str]:
+        """Backward-compatible alias for acceptance_tests."""
+        return self.acceptance_tests
+
+    @verification.setter
+    def verification(self, val: List[str]) -> None:
+        self.acceptance_tests = val

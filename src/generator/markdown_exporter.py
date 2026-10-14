@@ -50,7 +50,8 @@ def render_spec_markdown(
     stack_yaml = "\n".join(f"  - {_yaml_str(t)}" for t in spec.target_tech_stack)
     skeleton_md = "\n".join(f"{i}. {_clean_step(step)}" for i, step in enumerate(spec.walking_skeleton, 1))
     failures_md = "\n".join(f"- **{fm.failure.rstrip('.')}.** {fm.recovery}" for fm in spec.failure_modes)
-    verification_md = "\n".join(f"- [ ] {check}" for check in spec.verification)
+    tests_list = spec.acceptance_tests or spec.verification or []
+    acceptance_tests_md = "\n".join(f"- [ ] {check}" for check in tests_list)
     out_of_scope_md = "\n".join(f"- {item}" for item in spec.out_of_scope)
     prov_label = "Curated Archetype (Fallback)" if provenance == "fallback" else "Gemini 3.8 Flash (LLM)"
 
@@ -101,9 +102,9 @@ tags:
 
 {failures_md}
 
-## Local Verification
+## Acceptance Tests
 
-{verification_md}
+{acceptance_tests_md}
 
 ## Out of Scope
 

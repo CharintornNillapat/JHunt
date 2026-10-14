@@ -33,7 +33,7 @@ def make_spec(**overrides) -> ProjectIdeaSpec:
         contracts="`POST /webhooks/promptpay` returns 200 `{status}`.",
         database_schema="`ledger_entries(event_id UNIQUE, amount_satang)`",
         failure_modes=[FailureMode(failure="Duplicate delivery", recovery="ON CONFLICT DO NOTHING")],
-        verification=["pytest: 100 duplicate deliveries yield exactly 1 ledger row"],
+        acceptance_tests=["pytest: 100 duplicate deliveries yield exactly 1 ledger row"],
         out_of_scope=["Refunds"],
         difficulty="Intermediate",
     )
@@ -95,7 +95,7 @@ class TestMarkdownExporterAndTemplate(unittest.TestCase):
             "## Contracts",
             "## Data Model",
             "## Failure Modes & Recovery",
-            "## Local Verification",
+            "## Acceptance Tests",
             "## Out of Scope",
         ):
             self.assertIn(heading, rendered)
@@ -103,6 +103,34 @@ class TestMarkdownExporterAndTemplate(unittest.TestCase):
         self.assertIn("- **Duplicate delivery.** ON CONFLICT DO NOTHING", rendered)
         self.assertIn("- [ ] pytest: 100 duplicate deliveries yield exactly 1 ledger row", rendered)
         self.assertNotIn("Complete implementation of", rendered)
+
+    def test_acceptance_tests_and_verification_alias_parity(self):
+        spec1 = ProjectIdeaSpec(
+            title="Spec 1",
+            domain_industry="FinTech",
+            core_problem="Problem 1",
+            system_boundary="Boundary 1",
+            contracts="Contracts 1",
+            database_schema="Schema 1",
+            acceptance_tests=["pytest: check 1"],
+        )
+        self.assertEqual(spec1.acceptance_tests, ["pytest: check 1"])
+        self.assertEqual(spec1.verification, ["pytest: check 1"])
+
+        spec2 = ProjectIdeaSpec(
+            title="Spec 2",
+            domain_industry="FinTech",
+            core_problem="Problem 2",
+            system_boundary="Boundary 2",
+            contracts="Contracts 2",
+            database_schema="Schema 2",
+            verification=["pytest: check 2"],
+        )
+        self.assertEqual(spec2.acceptance_tests, ["pytest: check 2"])
+        self.assertEqual(spec2.verification, ["pytest: check 2"])
+
+        spec1.verification = ["pytest: updated check"]
+        self.assertEqual(spec1.acceptance_tests, ["pytest: updated check"])
 
     def test_frontmatter_survives_quotes_in_llm_output(self):
         rendered = self.exporter.render_spec(

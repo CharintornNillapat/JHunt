@@ -455,10 +455,24 @@ export default function BlueprintReader({ project }: BlueprintReaderProps) {
               </ol>
             );
           },
-          li({ children }) {
+          li(props) {
             return (
-              <li className="text-zinc-300 leading-relaxed">{children}</li>
+              <li className={cn("text-zinc-300 leading-relaxed", props.className)}>{props.children}</li>
             );
+          },
+          input(props) {
+            if (props.type === "checkbox") {
+              return (
+                <input
+                  type="checkbox"
+                  checked={props.checked}
+                  readOnly
+                  aria-label="Acceptance test item"
+                  className="h-3.5 w-3.5 rounded border border-white/20 bg-zinc-900 text-cyan-400 accent-cyan-400 focus:ring-0 mr-2 inline-block align-middle cursor-default"
+                />
+              );
+            }
+            return <input {...props} />;
           },
           hr() {
             return <hr className="my-8 border-white/[0.08]" />;
