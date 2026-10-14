@@ -11,6 +11,8 @@ import json
 import unittest
 from unittest.mock import MagicMock, patch
 
+import requests
+
 from src.models import RawJob
 from src.scrapers import (
     BaseScraper,
@@ -119,8 +121,9 @@ class TestJobsDBScraper(unittest.TestCase):
             ],
         }
 
+    @patch("time.sleep")
     @patch("requests.Session.get")
-    def test_jobsdb_scrape_success(self, mock_get):
+    def test_jobsdb_scrape_success(self, mock_get, mock_sleep):
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.json.return_value = self.mock_api_payload
@@ -142,8 +145,9 @@ class TestJobsDBScraper(unittest.TestCase):
         self.assertIn("Python / Django", job1.description)
         self.assertEqual(job1.url, "https://th.jobsdb.com/job/78901234")
 
+    @patch("time.sleep")
     @patch("requests.Session.get")
-    def test_jobsdb_scrape_respects_limit(self, mock_get):
+    def test_jobsdb_scrape_respects_limit(self, mock_get, mock_sleep):
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.json.return_value = self.mock_api_payload
@@ -152,8 +156,9 @@ class TestJobsDBScraper(unittest.TestCase):
         jobs = self.scraper.scrape(keywords=["python developer"], limit=1)
         self.assertEqual(len(jobs), 1)
 
+    @patch("time.sleep")
     @patch("requests.Session.get")
-    def test_jobsdb_malformed_record_handling(self, mock_get):
+    def test_jobsdb_malformed_record_handling(self, mock_get, mock_sleep):
         malformed_payload = {
             "totalCount": 2,
             "data": [
@@ -195,6 +200,105 @@ class TestJobsDBScraper(unittest.TestCase):
         self.assertEqual(len(jobs), 2)
         ids = [j.id for j in jobs]
         self.assertEqual(ids, ["jobsdb_111", "jobsdb_222"])
+
+    @patch("time.sleep")
+    @patch("requests.Session.get")
+    def test_jobsdb_skips_detail_fetch_for_known_ids(self, mock_get, mock_sleep):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = self.mock_api_payload
+        mock_get.return_value = mock_resp
+
+        known = {"jobsdb_78901234", "jobsdb_78901235"}
+        jobs = self.scraper.scrape(keywords=["python developer"], known_ids=known)
+
+        self.assertEqual(len(jobs), 2)
+        # Only 1 search request was made; 0 detail requests were made
+        self.assertEqual(mock_get.call_count, 1)
+        # Fallback description from teaser and bullet points is preserved
+        self.assertIn("Python / Django", jobs[0].description)
+
+    @patch("time.sleep")
+    @patch("requests.Session.get")
+    def test_jobsdb_detail_fetch_success_for_unseen_job(self, mock_get, mock_sleep):
+        def side_effect(url, params=None, timeout=None):
+            resp = MagicMock()
+            resp.status_code = 200
+            if "/job/" in url:
+                resp.json.return_value = {
+                    "jobDetail": "<p>Build microservices with FastAPI and Postgres. Full responsibilities and qualifications.</p>"
+                }
+            else:
+                resp.json.return_value = {
+                    "totalCount": 1,
+                    "data": [
+                        {
+                            "id": "99990001",
+                            "title": "Senior Backend Engineer",
+                            "companyName": "Alpha Tech",
+                            "teaser": "Short teaser",
+                            "bulletPoints": ["Python"],
+                            "salaryLabel": "100,000 THB",
+                        }
+                    ],
+                }
+            return resp
+
+        mock_get.side_effect = side_effect
+        jobs = self.scraper.scrape(keywords=["backend"], known_ids=set())
+
+        self.assertEqual(len(jobs), 1)
+        job = jobs[0]
+        self.assertEqual(job.id, "jobsdb_99990001")
+        self.assertIn("Build microservices with FastAPI and Postgres", job.description)
+        self.assertNotIn("<p>", job.description)
+        mock_sleep.assert_called_with(self.scraper.REQUEST_DELAY)
+
+    @patch("time.sleep")
+    @patch("requests.Session.get")
+    def test_jobsdb_detail_fetch_failure_falls_back_to_teaser(self, mock_get, mock_sleep):
+        def side_effect(url, params=None, timeout=None):
+            if "/job/" in url:
+                raise requests.exceptions.RequestException("Network timeout on detail API")
+            resp = MagicMock()
+            resp.status_code = 200
+            resp.json.return_value = {
+                "totalCount": 1,
+                "data": [
+                    {
+                        "id": "99990002",
+                        "title": "Cloud Architect",
+                        "companyName": "Cloud Co",
+                        "teaser": "Resilient cloud systems teaser",
+                        "bulletPoints": ["AWS", "Terraform"],
+                    }
+                ],
+            }
+            return resp
+
+        mock_get.side_effect = side_effect
+        jobs = self.scraper.scrape(keywords=["cloud"], known_ids=set())
+
+        self.assertEqual(len(jobs), 1)
+        job = jobs[0]
+        self.assertEqual(job.id, "jobsdb_99990002")
+        self.assertIn("Resilient cloud systems teaser", job.description)
+        self.assertIn("AWS", job.description)
+
+    @patch("time.sleep")
+    @patch("requests.Session.get")
+    def test_jobsdb_fetch_details_disabled(self, mock_get, mock_sleep):
+        scraper = JobsDBScraper(keywords=["python developer"], fetch_details=False)
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = self.mock_api_payload
+        mock_get.return_value = mock_resp
+
+        jobs = scraper.scrape(known_ids=set())
+        self.assertEqual(len(jobs), 2)
+        # Only 1 search call was made; no detail calls
+        self.assertEqual(mock_get.call_count, 1)
+        self.assertIn("Python / Django", jobs[0].description)
 
 
 class TestBlognoneScraper(unittest.TestCase):

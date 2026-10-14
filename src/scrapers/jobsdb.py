@@ -5,7 +5,9 @@ Implements BaseScraper to return normalized RawJob instances.
 """
 from __future__ import annotations
 
+import html
 import logging
+import re
 import time
 from typing import Any, Dict, List, Optional
 
@@ -25,6 +27,7 @@ class JobsDBScraper(BaseScraper):
     """
 
     SEARCH_URL = "https://th.jobsdb.com/api/jobsearch/v5/search"
+    DETAIL_URL = "https://th.jobsdb.com/api/jobsearch/v5/job/{job_id}"
     JOB_URL = "https://th.jobsdb.com/job/{job_id}"
 
     BASE_PARAMS = {
@@ -39,9 +42,10 @@ class JobsDBScraper(BaseScraper):
     DATE_RANGE_DAYS = 3
     REQUEST_DELAY = 1.0
 
-    def __init__(self, keywords: Optional[List[str]] = None):
+    def __init__(self, keywords: Optional[List[str]] = None, fetch_details: bool = True):
         super().__init__()
         self.default_keywords = [kw.strip() for kw in (keywords or []) if kw.strip()]
+        self.fetch_details = fetch_details
         self.session = self._build_session()
 
     def _fetch_page(self, keyword: str, page: int) -> Optional[Dict[str, Any]]:
@@ -63,7 +67,62 @@ class JobsDBScraper(BaseScraper):
             logger.warning(f"[JobsDB] Error fetching page (keyword='{keyword}', page={page}): {e}")
         return None
 
-    def _parse_job(self, item: Dict[str, Any]) -> Optional[RawJob]:
+    def _fetch_detail_description(self, raw_id: str) -> Optional[str]:
+        """
+        Fetches full job description from SEEK's detail API endpoint for a job ID.
+        Handles errors gracefully and falls back to None on any failure.
+        """
+        url = self.DETAIL_URL.format(job_id=raw_id)
+        try:
+            response = self.session.get(url, params=self.BASE_PARAMS, timeout=self.TIMEOUT)
+            response.raise_for_status()
+        except requests.exceptions.RequestException as e:
+            logger.warning(f"[JobsDB] Detail request failed (job_id='{raw_id}'): {e}")
+            return None
+        except Exception as e:
+            logger.warning(f"[JobsDB] Error fetching detail (job_id='{raw_id}'): {e}")
+            return None
+
+        content_text: Optional[str] = None
+        try:
+            data = response.json()
+            if isinstance(data, dict):
+                candidate = (
+                    data.get("jobDetail")
+                    or data.get("description")
+                    or data.get("content")
+                    or (data.get("job") or {}).get("content")
+                    or (data.get("jobDetail") or {}).get("job", {}).get("content")
+                )
+                if isinstance(candidate, dict):
+                    candidate = (
+                        candidate.get("content")
+                        or candidate.get("text")
+                        or candidate.get("description")
+                    )
+                if isinstance(candidate, str) and candidate.strip():
+                    content_text = candidate.strip()
+        except Exception:
+            if response.text and (
+                "<html" in response.text.lower()
+                or "<body" in response.text.lower()
+                or "<p>" in response.text.lower()
+            ):
+                content_text = response.text.strip()
+
+        if not content_text:
+            return None
+
+        cleaned = re.sub(r"<[^>]+>", " ", content_text)
+        cleaned = html.unescape(cleaned)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip()
+        return cleaned or None
+
+    def _parse_job(
+        self,
+        item: Dict[str, Any],
+        known_ids: Optional[set[str]] = None,
+    ) -> Optional[RawJob]:
         """Maps an API record into a normalized RawJob instance."""
         raw_id = str(item.get("id") or "").strip()
         if not raw_id:
@@ -97,7 +156,16 @@ class JobsDBScraper(BaseScraper):
             desc_parts.append(teaser)
         if bullet_points:
             desc_parts.append("\n".join(f"- {b}" for b in bullet_points))
-        description = "\n\n".join(desc_parts) if desc_parts else None
+        fallback_desc = "\n\n".join(desc_parts) if desc_parts else None
+
+        if known_ids and job_id in known_ids:
+            description = fallback_desc
+        elif self.fetch_details:
+            time.sleep(self.REQUEST_DELAY)
+            detail_desc = self._fetch_detail_description(raw_id)
+            description = detail_desc if detail_desc else fallback_desc
+        else:
+            description = fallback_desc
 
         listing_date = str(item.get("listingDate") or "").strip()
         salary_str = (item.get("salaryLabel") or "").strip() or None
@@ -165,7 +233,7 @@ class JobsDBScraper(BaseScraper):
                     if keyword_count >= limit:
                         break
 
-                    job = self._parse_job(item)
+                    job = self._parse_job(item, known_ids=known_ids)
                     if not job or job.id in seen_ids:
                         continue
 

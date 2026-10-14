@@ -133,6 +133,7 @@ Elevate `JHunt` from a keyword scraper and Telegram alerter into a production-gr
 #### Phase 5: Production Operations, Automation & Reliability (P5)
 - [x] **Task 5.1: CI Lockfile Integration in .github/workflows/scraper_cron.yml** (Pin CI uv dependency caching and installation to requirements.lock, align README setup commands).
 - [x] **Task 5.2: Desktop Web Reading & Study Refinements** (A4 print stylesheet, page-break hygiene, dark-to-light theme inversion, keyboard shortcuts cheat sheet modal with `?`, `p`/`Ctrl+P`, `Esc`).
+- [x] **Task 5.3: JobsDB Scraper Detail Page Fetch for Unseen Jobs** (SEEK REST detail endpoint integration for newly discovered jobs, known_ids optimization, resilient error fallback, and rate throttling).
 
 ---
 
