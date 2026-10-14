@@ -9,6 +9,7 @@ import {
   Calendar,
   Search,
   SlidersHorizontal,
+  X,
 } from "lucide-react";
 
 import type { GeneratedProject } from "@/lib/turso";
@@ -32,6 +33,7 @@ const CATEGORIES: { id: RoleCategory; label: string }[] = [
 export default function BlueprintCatalog({ initialProjects }: BlueprintCatalogProps) {
   const [selectedCategory, setSelectedCategory] = useState<RoleCategory>("ALL");
   const [searchQuery, setSearchQuery] = useState("");
+  const [selectedTech, setSelectedTech] = useState<string | null>(null);
 
   const filteredProjects = useMemo(() => {
     return initialProjects.filter((project) => {
@@ -61,9 +63,16 @@ export default function BlueprintCatalog({ initialProjects }: BlueprintCatalogPr
         project.tech_stack.toLowerCase().includes(q) ||
         project.domain.toLowerCase().includes(q);
 
-      return matchesCategory && matchesSearch;
+      // Tech tag filter
+      const matchesTech =
+        !selectedTech ||
+        parseTechStack(project.tech_stack).some(
+          (t) => t.toLowerCase() === selectedTech.toLowerCase()
+        );
+
+      return matchesCategory && matchesSearch && matchesTech;
     });
-  }, [initialProjects, selectedCategory, searchQuery]);
+  }, [initialProjects, selectedCategory, searchQuery, selectedTech]);
 
   return (
     <div className="w-full space-y-8">
@@ -95,17 +104,32 @@ export default function BlueprintCatalog({ initialProjects }: BlueprintCatalogPr
           })}
         </div>
 
-        {/* Search Input */}
-        <div className="relative min-w-[240px] md:w-72">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-500" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            aria-label="Filter by tech, domain, or role"
-            placeholder="Filter by tech, domain, or role..."
-            className="w-full bg-zinc-900/60 border border-white/[0.08] focus:border-cyan-500/50 rounded-lg pl-9 pr-3 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-500 focus:outline-none transition-all"
-          />
+        {/* Search & Active Tech Filter */}
+        <div className="flex flex-wrap items-center gap-2">
+          {selectedTech && (
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-cyan-950/80 border border-cyan-500/40 text-cyan-300 text-xs font-mono">
+              <span>Tech: {selectedTech}</span>
+              <button
+                type="button"
+                onClick={() => setSelectedTech(null)}
+                aria-label={`Clear ${selectedTech} filter`}
+                className="text-cyan-400 hover:text-white p-0.5 rounded focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cyan-400"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          )}
+          <div className="relative min-w-[240px] md:w-72">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-500" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              aria-label="Filter by tech, domain, or role"
+              placeholder="Filter by tech, domain, or role..."
+              className="w-full bg-zinc-900/60 border border-white/[0.08] focus:border-cyan-500/50 rounded-lg pl-9 pr-3 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-500 focus:outline-none transition-all"
+            />
+          </div>
         </div>
       </div>
 
@@ -127,13 +151,14 @@ export default function BlueprintCatalog({ initialProjects }: BlueprintCatalogPr
             <p className="text-xs text-zinc-500 max-w-sm mb-4">
               Try adjusting your role category filter or search query.
             </p>
-            {(selectedCategory !== "ALL" || searchQuery) && (
+            {(selectedCategory !== "ALL" || searchQuery || selectedTech) && (
               <button
                 onClick={() => {
                   setSelectedCategory("ALL");
                   setSearchQuery("");
+                  setSelectedTech(null);
                 }}
-                className="text-xs font-mono text-cyan-400 hover:underline"
+                className="text-xs font-mono text-cyan-400 hover:underline min-h-[44px] inline-flex items-center"
               >
                 Clear all filters &rarr;
               </button>
@@ -193,18 +218,34 @@ export default function BlueprintCatalog({ initialProjects }: BlueprintCatalogPr
                         <span className="text-zinc-500">{project.difficulty}</span>
                       </div>
 
-                      {/* Tech Stack Pills */}
+                      {/* Tech Stack Pills (Click-to-Filter) */}
                       <div className="flex flex-wrap gap-1.5 mb-6">
-                        {techStack.slice(0, 5).map((tech) => (
-                          <span
-                            key={tech}
-                            className="font-mono text-[11px] px-2 py-0.5 rounded bg-zinc-800/70 border border-white/[0.06] text-zinc-300"
-                          >
-                            {tech}
-                          </span>
-                        ))}
+                        {techStack.slice(0, 5).map((tech) => {
+                          const isSelected =
+                            selectedTech?.toLowerCase() === tech.toLowerCase();
+                          return (
+                            <button
+                              key={tech}
+                              type="button"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                setSelectedTech(isSelected ? null : tech);
+                              }}
+                              aria-pressed={isSelected}
+                              aria-label={`Filter by ${tech}`}
+                              className={cn(
+                                "font-mono text-[11px] px-2.5 py-1 rounded transition-all min-h-[32px] inline-flex items-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-950",
+                                isSelected
+                                  ? "bg-cyan-950/90 border border-cyan-500/50 text-cyan-200 ring-1 ring-cyan-500/30 font-medium"
+                                  : "bg-zinc-800/70 border border-white/[0.06] text-zinc-300 hover:border-cyan-500/30 hover:text-zinc-100"
+                              )}
+                            >
+                              {tech}
+                            </button>
+                          );
+                        })}
                         {techStack.length > 5 && (
-                          <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-zinc-800/40 text-zinc-500">
+                          <span className="font-mono text-[10px] px-2 py-1 rounded bg-zinc-800/40 text-zinc-500 inline-flex items-center">
                             +{techStack.length - 5}
                           </span>
                         )}

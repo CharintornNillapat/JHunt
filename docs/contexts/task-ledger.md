@@ -117,6 +117,9 @@ Elevate `JHunt` from a keyword scraper and Telegram alerter into a production-gr
 - [x] **Task 2.3: ISR Caching & On-Demand Revalidation** (`export const revalidate = 3600;` on `/` & `/analytics`, `/api/revalidate`, CI step 8).
 - [x] **Task 2.4: Eliminate Duplicate Client Mount Query & API Memoization** (Skip initial mount fetch, 10-min TTL in `turso.ts` and `route.ts`).
 
+#### Phase 3: Performance & UX Polish (P3)
+- [x] **Task 3.1: Web Performance & Interactive UX Polish** (Lazy Three.js hero canvas, click-to-filter tech tags, sticky TOC with scroll-spy, 1-click role presets).
+
 ---
 
 ## 3. Operational Guardrails Log

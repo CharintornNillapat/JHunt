@@ -1,6 +1,6 @@
-# Review: Task 2.4 — Eliminate Duplicate Client Mount Query & API Memoization
+# Review: Task 3.1 — Web Performance and Interactive UX Polish
 
-Task: 2.4
+Task: 3.1
 Verdict: PASS
 Tests: 197 passed (run by reviewer), web lint & build clean
 

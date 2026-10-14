@@ -16,10 +16,45 @@ import {
 } from "lucide-react";
 import SpotlightCard from "./SpotlightCard";
 import type { SkillGapResponse } from "@/lib/skill-gap-types";
+import { cn } from "@/lib/utils";
 
 interface SkillGapMatcherProps {
   initialData?: SkillGapResponse | null;
 }
+
+interface StackPreset {
+  id: string;
+  label: string;
+  description: string;
+  skills: string[];
+}
+
+const STACK_PRESETS: StackPreset[] = [
+  {
+    id: "fullstack-ts",
+    label: "Full-Stack TS",
+    description: "Modern TypeScript and React ecosystem",
+    skills: ["TypeScript", "React", "Next.js", "Node.js", "PostgreSQL"],
+  },
+  {
+    id: "python-backend",
+    label: "Python Backend",
+    description: "High-throughput asynchronous API services",
+    skills: ["Python", "FastAPI", "PostgreSQL", "Docker", "Redis"],
+  },
+  {
+    id: "data-ml",
+    label: "Data & ML",
+    description: "Data pipelines and distributed workloads",
+    skills: ["Python", "PostgreSQL", "Docker", "AWS", "Kubernetes"],
+  },
+  {
+    id: "cloud-systems",
+    label: "Cloud Systems",
+    description: "Microservices and infrastructure orchestration",
+    skills: ["Go", "Docker", "Kubernetes", "PostgreSQL", "Redis"],
+  },
+];
 
 function RadialGauge({ percentage }: { percentage: number }) {
   const radius = 38;
@@ -249,6 +284,45 @@ export default function SkillGapMatcher({ initialData }: SkillGapMatcherProps) {
         {/* Left Column: Skill Tag Selector & Input (7 cols) */}
         <div className="lg:col-span-7 flex flex-col justify-between space-y-6">
           <div>
+            {/* 1-Click Role Stack Presets */}
+            <div className="mb-5">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[11px] font-mono text-zinc-400 uppercase tracking-wider">
+                  Role Stack Presets:
+                </span>
+                <span className="text-[10px] font-mono text-zinc-500">
+                  Instant 1-Click Benchmark
+                </span>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {STACK_PRESETS.map((preset) => {
+                  const isActive = areSkillSetsEqual(selectedSkills, preset.skills);
+                  return (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => setSelectedSkills(preset.skills)}
+                      aria-pressed={isActive}
+                      title={preset.description}
+                      className={cn(
+                        "flex flex-col text-left p-2.5 rounded-lg border transition-all min-h-[44px] justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950",
+                        isActive
+                          ? "bg-cyan-950/90 border-cyan-500/50 text-cyan-200 ring-1 ring-cyan-500/30 shadow-sm"
+                          : "bg-zinc-900/70 border-white/[0.08] text-zinc-300 hover:text-white hover:bg-zinc-800/80 hover:border-white/[0.15]"
+                      )}
+                    >
+                      <span className="text-xs font-semibold font-mono leading-tight">
+                        {preset.label}
+                      </span>
+                      <span className="text-[10px] text-zinc-400 font-mono truncate mt-0.5">
+                        {preset.skills.slice(0, 3).join(", ")}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
             <label className="block text-xs font-mono uppercase tracking-wider text-zinc-400 mb-2">
               Current Competency Stack ({selectedSkills.length} selected)
             </label>

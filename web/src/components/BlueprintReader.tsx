@@ -15,12 +15,43 @@ import {
   Download,
   Gauge,
   Hash,
+  List,
 } from "lucide-react";
 import type { GeneratedProject } from "@/lib/turso";
 import { formatDate, parseTechStack } from "@/lib/format";
+import { cn } from "@/lib/utils";
 
 interface BlueprintReaderProps {
   project: GeneratedProject;
+}
+
+interface TocHeading {
+  id: string;
+  text: string;
+  level: 2 | 3;
+}
+
+function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^\w\s-]/g, "")
+    .trim()
+    .replace(/\s+/g, "-");
+}
+
+function getNodeText(node: unknown): string {
+  if (!node) return "";
+  if (typeof node === "string") return node;
+  if (typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(getNodeText).join("");
+  if (
+    typeof node === "object" &&
+    "props" in node &&
+    (node as { props: { children?: unknown } }).props.children
+  ) {
+    return getNodeText((node as { props: { children?: unknown } }).props.children);
+  }
+  return "";
 }
 
 function CodeBlockComponent({
@@ -135,8 +166,71 @@ export default function BlueprintReader({ project }: BlueprintReaderProps) {
       .replace(/^# .*\n+/, "");
   }, [project.spec_markdown]);
 
+  const headings = useMemo<TocHeading[]>(() => {
+    const lines = cleanMarkdown.split("\n");
+    const extracted: TocHeading[] = [];
+    const counts: Record<string, number> = {};
+
+    for (const line of lines) {
+      const match = /^(#{2,3})\s+(.+)$/.exec(line.trim());
+      if (match) {
+        const level = match[1].length as 2 | 3;
+        const rawText = match[2].trim().replace(/[*_`]/g, "");
+        let slug = slugify(rawText);
+        if (!slug) slug = "section";
+        if (counts[slug] !== undefined) {
+          counts[slug]++;
+          slug = `${slug}-${counts[slug]}`;
+        } else {
+          counts[slug] = 0;
+        }
+        extracted.push({ id: slug, text: rawText, level });
+      }
+    }
+    return extracted;
+  }, [cleanMarkdown]);
+
+  const [activeId, setActiveId] = useState<string>("");
+  const currentActiveId = activeId || (headings[0]?.id ?? "");
+
+  useEffect(() => {
+    if (headings.length === 0) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries
+          .filter((e) => e.isIntersecting)
+          .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+
+        if (visible.length > 0) {
+          setActiveId(visible[0].target.id);
+        }
+      },
+      {
+        rootMargin: "-100px 0px -60% 0px",
+        threshold: 0,
+      }
+    );
+
+    headings.forEach(({ id }) => {
+      const el = document.getElementById(id);
+      if (el) observer.observe(el);
+    });
+
+    return () => observer.disconnect();
+  }, [headings]);
+
+  const scrollToHeading = (id: string) => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth" });
+      setActiveId(id);
+    }
+  };
+
   // P1-2: Memoize parsed markdown to prevent re-parsing on scroll events
   const renderedMarkdown = useMemo(() => {
+    let headingIdx = 0;
     return (
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
@@ -202,17 +296,29 @@ export default function BlueprintReader({ project }: BlueprintReaderProps) {
               </h1>
             );
           },
-          h2({ children }) {
+          h2(props) {
+            const current = headings[headingIdx];
+            const id = current?.id || slugify(getNodeText(props.children)) || "section";
+            headingIdx++;
             return (
-              <h2 className="text-xl sm:text-2xl font-medium tracking-tight text-zinc-100 pb-2 border-b border-white/[0.06] mt-8 mb-3">
-                {children}
+              <h2
+                id={id}
+                className="scroll-mt-32 text-xl sm:text-2xl font-medium tracking-tight text-zinc-100 pb-2 border-b border-white/[0.06] mt-8 mb-3"
+              >
+                {props.children}
               </h2>
             );
           },
-          h3({ children }) {
+          h3(props) {
+            const current = headings[headingIdx];
+            const id = current?.id || slugify(getNodeText(props.children)) || "section";
+            headingIdx++;
             return (
-              <h3 className="text-lg font-medium tracking-tight text-zinc-200 mt-6 mb-2">
-                {children}
+              <h3
+                id={id}
+                className="scroll-mt-32 text-lg font-medium tracking-tight text-zinc-200 mt-6 mb-2"
+              >
+                {props.children}
               </h3>
             );
           },
@@ -250,7 +356,7 @@ export default function BlueprintReader({ project }: BlueprintReaderProps) {
         {cleanMarkdown || "*No specification markdown content available.*"}
       </ReactMarkdown>
     );
-  }, [cleanMarkdown]);
+  }, [cleanMarkdown, headings]);
 
   return (
     <div className="min-h-screen bg-[#08080a] text-zinc-200 flex flex-col relative">
@@ -393,24 +499,102 @@ export default function BlueprintReader({ project }: BlueprintReaderProps) {
         </div>
       </section>
 
-      {/* 4. Insulated Spec Reading Slab */}
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-10 flex-1 w-full bg-[#08080a]">
-        <article className="prose prose-invert prose-cyan max-w-none">
-          {renderedMarkdown}
-        </article>
+      {/* 4. Insulated Spec Reading Slab with Sticky TOC */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 flex-1 w-full bg-[#08080a]">
+        {/* Mobile Jump Menu (R-03) */}
+        {headings.length > 0 && (
+          <div className="lg:hidden mb-8 p-3 rounded-xl border border-white/[0.08] bg-[#0c0d12]/90 backdrop-blur-md">
+            <details className="group">
+              <summary className="flex items-center justify-between cursor-pointer text-xs font-mono text-zinc-300 select-none py-1 min-h-[44px]">
+                <span className="flex items-center gap-2">
+                  <List className="h-4 w-4 text-cyan-400" />
+                  <span className="font-semibold">Table of Contents</span>
+                  <span className="text-zinc-500 text-[11px]">({headings.length} sections)</span>
+                </span>
+                <span className="text-zinc-500 group-open:rotate-180 transition-transform text-xs">
+                  ▼
+                </span>
+              </summary>
+              <nav aria-label="Mobile table of contents" className="mt-3 pt-3 border-t border-white/[0.06] space-y-1 max-h-64 overflow-y-auto">
+                {headings.map((h) => {
+                  const isActive = currentActiveId === h.id;
+                  return (
+                    <a
+                      key={h.id}
+                      href={`#${h.id}`}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        scrollToHeading(h.id);
+                      }}
+                      className={cn(
+                        "block text-xs py-2 px-2.5 rounded transition-colors min-h-[44px] flex items-center",
+                        h.level === 3 ? "pl-6 text-zinc-400" : "text-zinc-300 font-medium",
+                        isActive
+                          ? "bg-cyan-950/60 text-cyan-300 border-l-2 border-cyan-400"
+                          : "hover:bg-zinc-800/60 hover:text-zinc-100"
+                      )}
+                    >
+                      {h.text}
+                    </a>
+                  );
+                })}
+              </nav>
+            </details>
+          </div>
+        )}
+
+        <div className="lg:grid lg:grid-cols-[1fr_260px] gap-10 items-start">
+          <article className="prose prose-invert prose-cyan max-w-none min-w-0">
+            {renderedMarkdown}
+          </article>
+
+          {/* Sticky Desktop TOC */}
+          {headings.length > 0 && (
+            <aside className="hidden lg:block sticky top-36 max-h-[calc(100vh-10rem)] overflow-y-auto p-4 rounded-xl border border-white/[0.08] bg-[#0c0d12]/90 backdrop-blur-md">
+              <h3 className="text-xs font-mono uppercase tracking-wider text-zinc-400 mb-3 flex items-center gap-1.5 pb-2 border-b border-white/[0.06]">
+                <List className="h-3.5 w-3.5 text-cyan-400" />
+                <span>Table of Contents</span>
+              </h3>
+              <nav aria-label="Table of contents" className="space-y-1">
+                {headings.map((h) => {
+                  const isActive = currentActiveId === h.id;
+                  return (
+                    <a
+                      key={h.id}
+                      href={`#${h.id}`}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        scrollToHeading(h.id);
+                      }}
+                      className={cn(
+                        "block text-xs transition-colors rounded py-1.5 pr-2 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cyan-400",
+                        h.level === 3 ? "ml-3 text-[11px]" : "font-medium",
+                        isActive
+                          ? "text-cyan-300 border-l-2 border-cyan-400 bg-cyan-950/30 pl-2.5"
+                          : "text-zinc-400 hover:text-zinc-200 pl-2.5 border-l-2 border-transparent"
+                      )}
+                    >
+                      {h.text}
+                    </a>
+                  );
+                })}
+              </nav>
+            </aside>
+          )}
+        </div>
 
         {/* Bottom Navigation */}
         <div className="mt-12 pt-6 border-t border-white/[0.07] flex items-center justify-between">
           <Link
             href="/"
-            className="inline-flex items-center gap-2 text-sm text-zinc-400 hover:text-cyan-400 font-medium transition-colors group"
+            className="inline-flex items-center gap-2 text-sm text-zinc-400 hover:text-cyan-400 font-medium transition-colors group min-h-[44px]"
           >
             <ArrowLeft className="h-4 w-4 transform group-hover:-translate-x-1 transition-transform" />
             <span>Back to All Blueprints</span>
           </Link>
           <a
             href="#top"
-            className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors font-mono"
+            className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors font-mono min-h-[44px] inline-flex items-center"
           >
             Top of Page &uarr;
           </a>

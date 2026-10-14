@@ -1,6 +1,15 @@
+import dynamic from "next/dynamic";
 import { getAllProjects } from "@/lib/turso";
 import BlueprintCatalog from "@/components/BlueprintCatalog";
-import ThreeCanvas from "@/components/ThreeCanvas";
+
+const ThreeCanvas = dynamic(() => import("@/components/ThreeCanvas"), {
+  loading: () => (
+    <div
+      className="pointer-events-none absolute inset-x-0 top-0 h-[560px] -z-10 overflow-hidden select-none"
+      aria-hidden="true"
+    />
+  ),
+});
 
 export const revalidate = 3600;
 
