@@ -5,6 +5,12 @@ import { formatDate, parseTechStack } from "./format";
 
 export { formatDate, parseTechStack };
 
+export const FALLBACK_BLUEPRINT_TITLES = new Set([
+  "Idempotent PromptPay Webhook Processor",
+  "Delivery Telemetry Ingestion with a Dead-Letter Table",
+  "Offline-Tolerant Delivery Dispatch Board",
+]);
+
 // Mirrors the generated_projects columns in src/storage/schema.py (shared by SQLite and Turso).
 export interface GeneratedProject {
   id: number;
@@ -14,6 +20,7 @@ export interface GeneratedProject {
   domain: string;
   tech_stack: string;
   spec_markdown: string;
+  provenance: "llm" | "fallback" | string;
   created_at: string;
 }
 
@@ -52,19 +59,40 @@ export async function getAllProjects(): Promise<GeneratedProject[]> {
     return [];
   }
   try {
-    const result = await turso.execute(
-      "SELECT id, title, role, difficulty, domain, tech_stack, spec_markdown, created_at FROM generated_projects WHERE id IN (SELECT MAX(id) FROM generated_projects GROUP BY title) ORDER BY created_at DESC"
-    );
-    return result.rows.map((row) => ({
-      id: Number(row.id),
-      title: String(row.title ?? ""),
-      role: String(row.role ?? ""),
-      difficulty: String(row.difficulty ?? "Intermediate"),
-      domain: String(row.domain ?? ""),
-      tech_stack: String(row.tech_stack ?? ""),
-      spec_markdown: String(row.spec_markdown ?? ""),
-      created_at: String(row.created_at ?? ""),
-    }));
+    let result;
+    let hasProvenanceCol = true;
+    try {
+      result = await turso.execute(
+        "SELECT id, title, role, difficulty, domain, tech_stack, spec_markdown, provenance, created_at FROM generated_projects WHERE id IN (SELECT MAX(id) FROM generated_projects GROUP BY title) ORDER BY created_at DESC"
+      );
+    } catch (queryErr) {
+      const errStr = String(queryErr);
+      if (errStr.includes("no such column: provenance")) {
+        hasProvenanceCol = false;
+        result = await turso.execute(
+          "SELECT id, title, role, difficulty, domain, tech_stack, spec_markdown, created_at FROM generated_projects WHERE id IN (SELECT MAX(id) FROM generated_projects GROUP BY title) ORDER BY created_at DESC"
+        );
+      } else {
+        throw queryErr;
+      }
+    }
+
+    return result.rows.map((row) => {
+      const title = String(row.title ?? "");
+      const rawProvenance = hasProvenanceCol && row.provenance != null ? String(row.provenance).trim() : "";
+      const provenance = rawProvenance || (FALLBACK_BLUEPRINT_TITLES.has(title) ? "fallback" : "llm");
+      return {
+        id: Number(row.id),
+        title,
+        role: String(row.role ?? ""),
+        difficulty: String(row.difficulty ?? "Intermediate"),
+        domain: String(row.domain ?? ""),
+        tech_stack: String(row.tech_stack ?? ""),
+        spec_markdown: String(row.spec_markdown ?? ""),
+        provenance,
+        created_at: String(row.created_at ?? ""),
+      };
+    });
   } catch (err) {
     console.error("[Turso] Could not fetch projects:", err);
     return [];
@@ -80,22 +108,42 @@ export const getProjectById = cache(async (id: string | number): Promise<Generat
     return null;
   }
   try {
-    const result = await turso.execute({
-      sql: "SELECT id, title, role, difficulty, domain, tech_stack, spec_markdown, created_at FROM generated_projects WHERE id = ? LIMIT 1",
-      args: [id],
-    });
+    let result;
+    let hasProvenanceCol = true;
+    try {
+      result = await turso.execute({
+        sql: "SELECT id, title, role, difficulty, domain, tech_stack, spec_markdown, provenance, created_at FROM generated_projects WHERE id = ? LIMIT 1",
+        args: [id],
+      });
+    } catch (queryErr) {
+      const errStr = String(queryErr);
+      if (errStr.includes("no such column: provenance")) {
+        hasProvenanceCol = false;
+        result = await turso.execute({
+          sql: "SELECT id, title, role, difficulty, domain, tech_stack, spec_markdown, created_at FROM generated_projects WHERE id = ? LIMIT 1",
+          args: [id],
+        });
+      } else {
+        throw queryErr;
+      }
+    }
+
     if (result.rows.length === 0) {
       return null;
     }
     const row = result.rows[0];
+    const title = String(row.title ?? "");
+    const rawProvenance = hasProvenanceCol && row.provenance != null ? String(row.provenance).trim() : "";
+    const provenance = rawProvenance || (FALLBACK_BLUEPRINT_TITLES.has(title) ? "fallback" : "llm");
     return {
       id: Number(row.id),
-      title: String(row.title ?? ""),
+      title,
       role: String(row.role ?? ""),
       difficulty: String(row.difficulty ?? "Intermediate"),
       domain: String(row.domain ?? ""),
       tech_stack: String(row.tech_stack ?? ""),
       spec_markdown: String(row.spec_markdown ?? ""),
+      provenance,
       created_at: String(row.created_at ?? ""),
     };
   } catch (err) {

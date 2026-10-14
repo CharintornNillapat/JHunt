@@ -71,11 +71,23 @@ class TestMarkdownExporterAndTemplate(unittest.TestCase):
         self.assertIn('role: "Backend Engineer"', rendered)
         self.assertIn('difficulty: "Intermediate"', rendered)
         self.assertIn('domain_industry: "FinTech & Digital Payments (Thailand)"', rendered)
+        self.assertIn('provenance: "llm"', rendered)
         self.assertIn('- "FastAPI"', rendered)
         self.assertIn("- portfolio-project", rendered)
 
         # Markdown body: buildable sections, rendered from the spec only
         self.assertIn("# Real-Time PromptPay Webhook & Settlement Gateway", rendered)
+        self.assertIn("> **Provenance:** Gemini 3.8 Flash (LLM)", rendered)
+
+        # Test curated fallback rendering
+        fallback_spec = make_spec(title="Idempotent PromptPay Webhook Processor")
+        rendered_fallback = self.exporter.render_spec(
+            spec=fallback_spec,
+            target_role="Backend Engineer",
+            generated_date="2026-10-10",
+        )
+        self.assertIn('provenance: "fallback"', rendered_fallback)
+        self.assertIn("> **Provenance:** Curated Archetype (Fallback)", rendered_fallback)
         for heading in (
             "## Core Problem",
             "## System Boundary",
@@ -120,7 +132,18 @@ class TestMarkdownExporterAndTemplate(unittest.TestCase):
         self.assertEqual(records[0]["role"], "Backend Engineer")
         self.assertEqual(records[0]["domain"], self.sample_spec.domain_industry)
         self.assertEqual(records[0]["difficulty"], "Intermediate")
+        self.assertEqual(records[0]["provenance"], "llm")
         self.assertIn("## Core Problem", records[0]["spec_markdown"])
+
+        # Verify fallback export records provenance as 'fallback'
+        fallback_spec = make_spec(title="Idempotent PromptPay Webhook Processor")
+        self.exporter.export(
+            spec=fallback_spec,
+            target_role="Backend Engineer",
+            custom_date="2026-10-10",
+        )
+        all_records = {r["title"]: r for r in self.db.get_generated_projects(limit=10)}
+        self.assertEqual(all_records["Idempotent PromptPay Webhook Processor"]["provenance"], "fallback")
 
     def test_export_skips_already_saved_spec_when_asked(self):
         first = self.exporter.export(spec=self.sample_spec, target_role="Backend Engineer", skip_if_saved=True)

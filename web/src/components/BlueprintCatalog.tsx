@@ -5,10 +5,12 @@ import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowRight,
+  BookmarkCheck,
   Briefcase,
   Calendar,
   Search,
   SlidersHorizontal,
+  Sparkles,
   X,
 } from "lucide-react";
 
@@ -245,12 +247,33 @@ export default function BlueprintCatalog({ initialProjects }: BlueprintCatalogPr
                 >
                   <SpotlightCard className="h-full p-6 flex flex-col justify-between hover:border-cyan-500/40 hover:-translate-y-0.5 transition-all duration-300">
                     <div>
-                      {/* Header: Role Badge + Spec ID */}
+                      {/* Header: Role Badge + Provenance Badge + Spec ID */}
                       <div className="flex items-center justify-between gap-2 mb-3.5">
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded text-[11px] font-medium bg-cyan-950/80 border border-cyan-800/60 text-cyan-300">
-                          {project.role}
-                        </span>
-                        <span className="font-mono text-[10px] text-zinc-500 tracking-wider">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded text-[11px] font-medium bg-cyan-950/80 border border-cyan-800/60 text-cyan-300">
+                            {project.role}
+                          </span>
+                          {project.provenance === "fallback" ? (
+                            <span
+                              title="Curated offline fallback specification"
+                              aria-label="Provenance: Curated Archetype"
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-amber-950/60 border border-amber-600/40 text-amber-300"
+                            >
+                              <BookmarkCheck className="h-3 w-3 text-amber-400" />
+                              <span>Curated Archetype</span>
+                            </span>
+                          ) : (
+                            <span
+                              title="Synthesized by Gemini 3.8 Flash from Thailand job postings"
+                              aria-label="Provenance: Gemini Synthesis"
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-cyan-950/60 border border-cyan-500/30 text-cyan-300"
+                            >
+                              <Sparkles className="h-3 w-3 text-cyan-400" />
+                              <span>Gemini Synthesis</span>
+                            </span>
+                          )}
+                        </div>
+                        <span className="font-mono text-[10px] text-zinc-500 tracking-wider shrink-0">
                           #{specHash}
                         </span>
                       </div>

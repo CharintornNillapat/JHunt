@@ -6,6 +6,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
   ArrowLeft,
+  BookmarkCheck,
   Briefcase,
   Calendar,
   Check,
@@ -17,6 +18,7 @@ import {
   Hash,
   List,
   Share2,
+  Sparkles,
 } from "lucide-react";
 import type { GeneratedProject } from "@/lib/turso";
 import { formatDate, parseTechStack } from "@/lib/format";
@@ -570,6 +572,25 @@ export default function BlueprintReader({ project }: BlueprintReaderProps) {
               <Gauge className="h-3 w-3 text-sky-400" />
               {project.difficulty || "Production Grade"}
             </span>
+            {project.provenance === "fallback" ? (
+              <span
+                title="Curated offline fallback specification"
+                aria-label="Provenance: Curated Archetype"
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-950/60 border border-amber-600/40 text-amber-300"
+              >
+                <BookmarkCheck className="h-3 w-3 text-amber-400" />
+                <span>Curated Archetype</span>
+              </span>
+            ) : (
+              <span
+                title="Synthesized by Gemini 3.8 Flash from Thailand job postings"
+                aria-label="Provenance: Gemini Synthesis"
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-cyan-950/60 border border-cyan-500/30 text-cyan-300"
+              >
+                <Sparkles className="h-3 w-3 text-cyan-400" />
+                <span>Gemini Synthesis</span>
+              </span>
+            )}
             <span className="inline-flex items-center gap-1.5 text-xs text-zinc-500 font-mono ml-auto">
               <Calendar className="h-3.5 w-3.5" />
               {formatDate(project.created_at)}
@@ -582,7 +603,7 @@ export default function BlueprintReader({ project }: BlueprintReaderProps) {
           </h1>
 
           {/* Metadata Architecture HUD Bar */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 rounded-xl border border-white/[0.07] bg-[#0c0d12] font-mono text-xs">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 p-4 rounded-xl border border-white/[0.07] bg-[#0c0d12] font-mono text-xs">
             <div>
               <span className="text-[10px] text-zinc-500 uppercase block mb-1">
                 Target Role
@@ -605,6 +626,23 @@ export default function BlueprintReader({ project }: BlueprintReaderProps) {
               </span>
               <span className="text-zinc-200 font-semibold block">
                 {project.difficulty || "P95 Staff"}
+              </span>
+            </div>
+            <div>
+              <span className="text-[10px] text-zinc-500 uppercase block mb-1">
+                Generation Source
+              </span>
+              <span
+                className="text-zinc-200 font-semibold truncate block"
+                title={
+                  project.provenance === "fallback"
+                    ? "Curated Archetype (Offline Fallback)"
+                    : "Gemini 3.8 Flash (temperature 0.2)"
+                }
+              >
+                {project.provenance === "fallback"
+                  ? "Curated Archetype (Offline Fallback)"
+                  : "Gemini 3.8 Flash (temperature 0.2)"}
               </span>
             </div>
             <div>

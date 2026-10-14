@@ -289,6 +289,70 @@ class TursoClient:
             except Exception as e:
                 logger.warning(f"[TursoClient] Failed to add column 'category': {e}")
 
+    def _get_generated_projects_columns(self) -> set[str]:
+        """Inspects existing column names of generated_projects table in Turso."""
+        if not self.client:
+            return set()
+        try:
+            if hasattr(self.client, "execute"):
+                rs = self.client.execute("PRAGMA table_info(generated_projects);")
+            elif hasattr(self.client, "batch"):
+                res = self.client.batch(["PRAGMA table_info(generated_projects);"])
+                rs = res[0] if res else None
+            else:
+                return set()
+
+            rows = getattr(rs, "rows", None)
+            if rows is None:
+                if hasattr(rs, "fetchall"):
+                    try:
+                        rows = rs.fetchall()
+                    except Exception:
+                        rows = None
+                elif hasattr(rs, "__iter__") and not isinstance(rs, (str, bytes)):
+                    try:
+                        rows = list(rs)
+                    except Exception:
+                        rows = None
+
+            if not rows:
+                return set()
+
+            cols: set[str] = set()
+            for row in rows:
+                if hasattr(row, "__getitem__"):
+                    try:
+                        cols.add(str(row["name"]).strip().lower())
+                    except (TypeError, KeyError, IndexError):
+                        if len(row) > 1:
+                            cols.add(str(row[1]).strip().lower())
+                elif hasattr(row, "name"):
+                    cols.add(str(row.name).strip().lower())
+            return cols
+        except Exception as e:
+            logger.debug(f"[TursoClient] Failed to inspect generated_projects columns ({e}).")
+            return set()
+
+    def _migrate_generated_projects_schema(self) -> None:
+        """
+        Self-healing schema migration for generated_projects table in Turso.
+        Ensures 'provenance' column exists.
+        """
+        if not self.client:
+            return
+
+        cols = self._get_generated_projects_columns()
+        if not cols:
+            return
+
+        if "provenance" not in cols:
+            try:
+                logger.info("[TursoClient] Adding missing column 'provenance' to generated_projects...")
+                self._execute_ddl("ALTER TABLE generated_projects ADD COLUMN provenance TEXT DEFAULT 'llm';")
+                cols.add("provenance")
+            except Exception as e:
+                logger.warning(f"[TursoClient] Failed to add column 'provenance': {e}")
+
     def _create_indexes(self) -> None:
         """
         Creates B-Tree indexes with isolated error handling.
@@ -349,6 +413,7 @@ class TursoClient:
         try:
             self._migrate_jobs_schema()
             self._migrate_skills_extracted_schema()
+            self._migrate_generated_projects_schema()
         except Exception as e:
             logger.warning(f"[TursoClient] Schema migration check encountered non-fatal error: {e}")
 
@@ -518,6 +583,7 @@ class TursoClient:
         domain: str = "",
         tech_stack: Union[List[str], str] = "",
         spec_markdown: str = "",
+        provenance: str = "llm",
         **kwargs: Any,
     ) -> bool:
         """
@@ -536,8 +602,8 @@ class TursoClient:
             self.client.execute(
                 """
                 INSERT INTO generated_projects (
-                    title, role, difficulty, domain, tech_stack, spec_markdown
-                ) VALUES (?, ?, ?, ?, ?, ?);
+                    title, role, difficulty, domain, tech_stack, spec_markdown, provenance
+                ) VALUES (?, ?, ?, ?, ?, ?, ?);
                 """,
                 [
                     str(title).strip(),
@@ -546,6 +612,7 @@ class TursoClient:
                     str(domain).strip(),
                     stack_str,
                     str(spec_markdown),
+                    str(provenance or "llm").strip(),
                 ],
             )
             return True
@@ -841,6 +908,7 @@ class TursoClient:
         difficulty: str = "",
         domain: str = "",
         spec_markdown: str = "",
+        provenance: str = "llm",
     ) -> int:
         """Records a generated blueprint into Turso and returns 1 on success, 0 on failure."""
         success = self.sync_blueprint(
@@ -850,6 +918,7 @@ class TursoClient:
             domain=domain,
             tech_stack=tech_stack,
             spec_markdown=spec_markdown,
+            provenance=provenance,
         )
         return 1 if success else 0
 

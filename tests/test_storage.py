@@ -263,10 +263,22 @@ class TestDatabaseManager(unittest.TestCase):
         )
         self.assertGreater(project_id, 0)
 
+        fallback_id = self.db.record_generated_project(
+            title="Idempotent PromptPay Webhook Processor",
+            role="Backend Engineer",
+            tech_stack=["Python", "FastAPI"],
+            difficulty="Intermediate",
+            domain="FinTech",
+            spec_markdown="# PromptPay",
+            provenance="fallback",
+        )
+        self.assertGreater(fallback_id, 0)
+
         projects = self.db.get_generated_projects(limit=10)
-        self.assertEqual(len(projects), 1)
-        self.assertEqual(projects[0]["title"], "E-Commerce Payment Orchestrator")
-        self.assertEqual(projects[0]["domain"], "FinTech")
+        self.assertEqual(len(projects), 2)
+        proj_map = {p["title"]: p for p in projects}
+        self.assertEqual(proj_map["E-Commerce Payment Orchestrator"]["provenance"], "llm")
+        self.assertEqual(proj_map["Idempotent PromptPay Webhook Processor"]["provenance"], "fallback")
         self.assertTrue(self.db.has_generated_project("E-Commerce Payment Orchestrator"))
         self.assertFalse(self.db.has_generated_project("Something Else"))
 
@@ -275,7 +287,7 @@ class TestDatabaseManager(unittest.TestCase):
             cols = [row[1] for row in conn.execute("PRAGMA table_info(generated_projects)")]
         self.assertEqual(
             cols,
-            ["id", "title", "role", "difficulty", "domain", "tech_stack", "spec_markdown", "created_at"],
+            ["id", "title", "role", "difficulty", "domain", "tech_stack", "spec_markdown", "provenance", "created_at"],
         )
 
     def test_get_unprocessed_jobs_orders_descending(self):
@@ -989,6 +1001,21 @@ class TestTursoClient(unittest.TestCase):
         self.assertEqual(params[3], "FinTech & Digital Banking")
         self.assertIn("Go", params[4])
         self.assertIn("System Blueprint", params[5])
+        self.assertEqual(params[6], "llm")
+
+        # Test with custom provenance
+        mock_client.execute.reset_mock()
+        turso.sync_blueprint(
+            title="Idempotent PromptPay Webhook Processor",
+            role="Backend Engineer",
+            difficulty="Intermediate",
+            domain="FinTech",
+            tech_stack=["Python", "FastAPI"],
+            spec_markdown="# PromptPay",
+            provenance="fallback",
+        )
+        _, fallback_params = mock_client.execute.call_args[0]
+        self.assertEqual(fallback_params[6], "fallback")
 
     def test_turso_client_close(self):
         mock_client = MagicMock()
@@ -1302,6 +1329,44 @@ class TestTursoExporterIntegration(unittest.TestCase):
         self.assertEqual(call_kwargs["domain"], "E-Commerce")
         self.assertIn("FastAPI", call_kwargs["tech_stack"])
         self.assertIn("Flash Sale Inventory Locking Engine", call_kwargs["spec_markdown"])
+        self.assertEqual(call_kwargs["provenance"], "llm")
+
+    def test_schema_migration_for_provenance_column(self):
+        # 1. DatabaseManager self-healing
+        custom_db = Path(self.temp_dir) / "legacy_prov.db"
+        with sqlite3.connect(custom_db) as conn:
+            conn.execute("""
+                CREATE TABLE generated_projects (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    title TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    difficulty TEXT,
+                    domain TEXT,
+                    tech_stack TEXT,
+                    spec_markdown TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """)
+        db = DatabaseManager(db_path=custom_db)
+        with db._connection() as conn:
+            cols = {row["name"] for row in conn.execute("PRAGMA table_info(generated_projects)")}
+            self.assertIn("provenance", cols)
+
+        # 2. TursoClient self-healing
+        mock_client = MagicMock()
+        class MockTableInfo:
+            rows = [
+                {"name": "id"},
+                {"name": "title"},
+                {"name": "role"},
+                {"name": "tech_stack"},
+            ]
+        mock_client.execute.return_value = MockTableInfo()
+        turso = TursoClient(client=mock_client)
+        turso._migrate_generated_projects_schema()
+        # Should have executed ALTER TABLE to add provenance
+        executed_sqls = [call[0][0] for call in mock_client.execute.call_args_list]
+        self.assertTrue(any("ADD COLUMN provenance" in s for s in executed_sqls))
 
 
 class TestSkillStats(unittest.TestCase):

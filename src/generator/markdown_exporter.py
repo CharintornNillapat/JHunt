@@ -44,6 +44,7 @@ def render_spec_markdown(
     spec: ProjectIdeaSpec,
     target_role: str,
     generated_date: str,
+    provenance: str = "llm",
 ) -> str:
     """Renders ProjectIdeaSpec into Markdown with YAML frontmatter. Every line comes from the spec."""
     stack_yaml = "\n".join(f"  - {_yaml_str(t)}" for t in spec.target_tech_stack)
@@ -51,6 +52,7 @@ def render_spec_markdown(
     failures_md = "\n".join(f"- **{fm.failure.rstrip('.')}.** {fm.recovery}" for fm in spec.failure_modes)
     verification_md = "\n".join(f"- [ ] {check}" for check in spec.verification)
     out_of_scope_md = "\n".join(f"- {item}" for item in spec.out_of_scope)
+    prov_label = "Curated Archetype (Fallback)" if provenance == "fallback" else "Gemini 3.8 Flash (LLM)"
 
     return f"""---
 title: {_yaml_str(spec.title)}
@@ -60,6 +62,7 @@ difficulty: {_yaml_str(spec.difficulty)}
 domain_industry: {_yaml_str(spec.domain_industry)}
 tech_stack:
 {stack_yaml}
+provenance: {_yaml_str(provenance)}
 tags:
   - portfolio-project
   - thailand-tech-market
@@ -72,6 +75,7 @@ tags:
 > **Domain:** {spec.domain_industry}
 > **Difficulty:** {spec.difficulty}
 > **Stack:** {", ".join(spec.target_tech_stack)}
+> **Provenance:** {prov_label}
 
 ## Core Problem
 
@@ -140,13 +144,18 @@ class MarkdownExporter:
         spec: ProjectIdeaSpec,
         target_role: str,
         generated_date: Optional[str] = None,
+        provenance: Optional[str] = None,
     ) -> str:
         """Renders the ProjectIdeaSpec into a Markdown string with YAML frontmatter."""
         today_str = generated_date or date.today().isoformat()
+        if provenance is None:
+            from src.generator.ideation_engine import IdeationEngine
+            provenance = "fallback" if IdeationEngine.is_fallback(spec) else "llm"
         return render_spec_markdown(
             spec=spec,
             target_role=target_role,
             generated_date=today_str,
+            provenance=provenance,
         )
 
     def is_saved(self, title: str) -> bool:
@@ -180,10 +189,14 @@ class MarkdownExporter:
         filename = f"{today_str}_{_slugify(target_role)}_{_slugify(spec.title)}.md"
         destination_path = self.export_dir / filename
 
+        from src.generator.ideation_engine import IdeationEngine
+        provenance = "fallback" if IdeationEngine.is_fallback(spec) else "llm"
+
         markdown_content = self.render_spec(
             spec=spec,
             target_role=target_role,
             generated_date=today_str,
+            provenance=provenance,
         )
         destination_path.write_text(markdown_content, encoding="utf-8")
 
@@ -194,6 +207,7 @@ class MarkdownExporter:
             "domain": spec.domain_industry,
             "tech_stack": spec.target_tech_stack,
             "spec_markdown": markdown_content,
+            "provenance": provenance,
         }
         if self.storage and hasattr(self.storage, "record_generated_project"):
             self.storage.record_generated_project(**record)

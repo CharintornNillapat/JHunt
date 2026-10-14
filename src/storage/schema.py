@@ -14,6 +14,7 @@ GENERATED_PROJECTS_DDL = """
         domain TEXT,
         tech_stack TEXT,
         spec_markdown TEXT,
+        provenance TEXT DEFAULT 'llm',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
 """

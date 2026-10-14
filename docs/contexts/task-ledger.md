@@ -125,6 +125,9 @@ Elevate `JHunt` from a keyword scraper and Telegram alerter into a production-gr
 - [x] **Task 3.5: Market Analytics Interactive Category Filter & Data Export** (WAI-ARIA cluster filter tabs, responsive panel isolation/expansion, and client-side CSV/JSON data export).
 - [x] **Task 3.6: OpenGraph Social Metadata, Dynamic Titles & Web Manifest** (Next.js 16 viewport, dynamic title template `%s | JHunt`, OpenGraph article/website cards, Twitter summary cards, `/manifest.webmanifest`, `/robots.txt`, and `/sitemap.xml`).
 
+#### Phase 4: Architecture, Pipeline Hardening & Solo Depth (P4)
+- [x] **Task 4.1: Blueprint Provenance & Source Attribution** (`source`/`provenance` tracking for LLM vs offline fallback in schema, storage, generator, and web badges).
+
 ---
 
 ## 3. Operational Guardrails Log

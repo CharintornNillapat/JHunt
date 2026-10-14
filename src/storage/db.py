@@ -66,6 +66,8 @@ class DatabaseManager:
             if "domain_industry" in legacy_cols:
                 for statement in LEGACY_PROJECTS_MIGRATION:
                     conn.execute(statement)
+            elif legacy_cols and "provenance" not in legacy_cols:
+                conn.execute("ALTER TABLE generated_projects ADD COLUMN provenance TEXT DEFAULT 'llm'")
 
             # Ensure columns exist if tables already existed prior to indexing
             jobs_cols = {row["name"] for row in conn.execute("PRAGMA table_info(jobs)")}
@@ -528,16 +530,17 @@ class DatabaseManager:
         difficulty: str = "",
         domain: str = "",
         spec_markdown: str = "",
+        provenance: str = "llm",
     ) -> int:
         """Records a generated blueprint (same columns as Turso) and returns its row id."""
         stack_str = json.dumps(tech_stack, ensure_ascii=False) if isinstance(tech_stack, list) else str(tech_stack)
         with self._connection() as conn:
             cursor = conn.execute(
                 """
-                INSERT INTO generated_projects (title, role, difficulty, domain, tech_stack, spec_markdown)
-                VALUES (?, ?, ?, ?, ?, ?);
+                INSERT INTO generated_projects (title, role, difficulty, domain, tech_stack, spec_markdown, provenance)
+                VALUES (?, ?, ?, ?, ?, ?, ?);
                 """,
-                (title.strip(), role.strip(), difficulty.strip(), domain.strip(), stack_str, spec_markdown),
+                (title.strip(), role.strip(), difficulty.strip(), domain.strip(), stack_str, spec_markdown, (provenance or "llm").strip()),
             )
             return cursor.lastrowid or 0
 
