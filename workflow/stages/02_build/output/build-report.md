@@ -1,44 +1,50 @@
-# Build Report: Task 3.4 — Code Snippet Clipboard & Blueprint Deep-Linking UX in BlueprintReader.tsx
+# Build Report: Task 3.5 — Market Analytics Interactive Category Filter & Data Export in AnalyticsCharts.tsx
 
-**Task:** 3.4  
-**Spec Reference:** `workflow/stages/01_spec/output/task-3.4-spec.md`  
+**Task:** 3.5  
+**Spec Reference:** `workflow/stages/01_spec/output/task-3.5-spec.md`  
 **Test Suite:** 197 passed (`uv run python -m unittest discover tests`), `npm run lint` & `npm run build` passed.
 
 ---
 
 ## Changes Implemented
 
-1. **`web/src/components/BlueprintReader.tsx` (Enhanced Code Snippet Clipboard & Metadata UX)**:
-   - Added line count calculation and metadata badge (`{lineCount} line(s)`) in code block headers.
-   - Implemented `copyToClipboard` utility with fallback to hidden `textarea` and `document.execCommand("copy")` for non-secure or restricted contexts.
-   - Enhanced copy button with accessible touch target bounds (`min-h-[36px] sm:min-h-[32px]`), `focus-visible:ring-2 focus-visible:ring-cyan-400`, `aria-label`, and screen-reader polite live announcement (`aria-live="polite"`).
-   - Added responsive code font sizing (`text-xs sm:text-[13px]`) and smooth touch scrolling.
+1. **`web/src/components/AnalyticsCharts.tsx` (Interactive Category Filter Toolbar)**:
+   - Implemented an accessible WAI-ARIA tab navigation bar (`role="tablist"`, `role="tab"`, `aria-selected`, `aria-controls`, `id`, `tabIndex`).
+   - Configured 5 cluster filter categories:
+     - `all`: "All Metrics" (icon: `Layers`, count: total metrics).
+     - `languages`: "Languages" (icon: `Code2`, count: language items).
+     - `cloud`: "Cloud & Infra" (icon: `Cloud`, count: cloud items).
+     - `compensation`: "Compensation" (icon: `Banknote`, count: top compensated skills).
+     - `frameworks`: "Data & Frameworks" (icon: `Database`, count: databases + frameworks).
+   - Added keyboard arrow navigation: Left/Right and Up/Down arrows cycle tabs; Home/End jump to first/last tabs; Enter/Space activate.
+   - Designed touch targets meeting $\ge 44\text{px}$ on mobile viewports with horizontal touch-scroll and hidden scrollbars.
 
-2. **`web/src/components/BlueprintReader.tsx` (Section Deep-Linking & Heading Anchors)**:
-   - Added interactive `#` anchor link buttons next to all `h2` and `h3` section titles with hover and focus visibility.
-   - Handled section link copying (`handleCopySectionLink`), copying canonical URL with `#slug`, updating the browser address bar hash without page jump via `window.history.replaceState`, and showing temporary green checkmark feedback.
-   - Added touch targets meeting $\ge 44\text{px}$ (`min-h-[44px] min-w-[44px] flex items-center justify-center`).
+2. **`web/src/components/AnalyticsCharts.tsx` (Dynamic Tabpanel Filtering & Responsive Expansion)**:
+   - Wrapped chart panels in `<div role="tabpanel" id="panel-..." aria-labelledby="tab-...">`.
+   - On `"all"`, rendered the comprehensive multi-section telemetry dashboard.
+   - On specific categories, cleanly isolated and expanded the active view:
+     - `"languages"`: Expanded vertical bar chart (`h-80 sm:h-96`) for detailed inspection of language frequency rankings.
+     - `"cloud"`: Expanded donut radius (`innerRadius={65}`, `outerRadius={105}`) with a responsive multi-column grid legend.
+     - `"compensation"`: Full-width salary benchmark card.
+     - `"frameworks"`: Side-by-side database and framework progress bars.
 
-3. **`web/src/components/BlueprintReader.tsx` (URL Hash Synchronization & Initial Mount Scroll)**:
-   - Synchronized TOC clicks with browser address bar hash (`window.history.replaceState(null, "", `#${id}`)`).
-   - Implemented initial mount hash detection with smooth scroll restoration to ensure deep links (e.g. `/blueprints/1#database-schema`) automatically navigate directly to target headings.
-
-4. **`web/src/components/BlueprintReader.tsx` (Quick Share Action in Sticky Sub-Header)**:
-   - Added "Share Link" action button in the sticky sub-header with `Share2` icon and copy confirmation (`Copied Link`).
-   - Added screen-reader live region (`aria-live="polite"`) announcing copy successes for section links, blueprint links, and raw spec copies.
-   - Standardized button touch targets (`min-h-[36px]`) and visible focus indicators across all sub-header actions.
+3. **`web/src/components/AnalyticsCharts.tsx` (Client-Side Data Export: CSV & JSON)**:
+   - **CSV Generator (`exportCSV`)**: Structured comma-separated table with UTF-8 BOM (`\uFEFF`) to prevent Excel/Windows encoding issues, including row escaping and automated timestamped filenames (`jhunt-market-analytics-YYYY-MM-DD.csv`).
+   - **JSON Generator (`exportJSON`)**: Structured telemetry JSON containing pipeline metadata (`totalJobs`, `totalSkills`, `totalBlueprints`, ISO timestamp) and full metric clusters.
+   - **Download Helper (`downloadBlob`)**: Hermetic client-side object URL generation and cleanup.
+   - **Export UX Feedback**: 2-second visual confirmation (`Exported!` with emerald `Check` icon) and polite screen-reader announcements (`aria-live="polite"`).
 
 ---
 
 ## antislop & Accessibility Compliance (Mode 1: DURING)
 
-- **R-02 (Copywriting)**: 0 em dashes (`—`) across all copy, tooltips, badges, buttons, and screen-reader announcements.
-- **R-03 (Mobile Responsiveness & Tap Targets)**: All interactive buttons meet touch target standards ($\ge 44\text{px}$ for standalone triggers, $\ge 36\text{px}$ with padding for inline actions). Zero horizontal overflow.
-- **R-25 (Color Contrast)**: All badges and feedback text meet or exceed WCAG AA $\ge 4.5:1$ contrast against dark surfaces.
-- **R-26 (Interactive Elements)**: Real clipboard writes with graceful fallback; URL hash updates without triggering full page reloads or layout jumps.
-- **R-27 (UI States)**: Clear visual feedback for copied states (emerald checkmark, text transition) with 2-second auto-reset.
-- **R-32 (Keyboard Accessibility)**: Complete keyboard navigability (`Tab`, `Enter`, `Space`), high-contrast focus rings (`focus-visible:ring-2 focus-visible:ring-cyan-400`), and `aria-live="polite"` screen-reader feedback.
-- **R-35 (Craftsmanship Verification)**: Clean ESLint run, clean Next.js production build, and all 197 hermetic tests passing.
+- **R-02 (Copywriting)**: 0 em dashes (`—`) across all copy, tooltips, buttons, badges, and generated export filenames.
+- **R-03 (Mobile Responsiveness & Tap Targets)**: All filter tabs and export buttons meet $\ge 44\text{px}$ touch targets. Tab container scrolls horizontally without inducing page-level overflow.
+- **R-25 (Color Contrast)**: Active tabs (`text-cyan-300` on `bg-cyan-500/15`, $> 9:1$), inactive tabs (`text-zinc-400` on `bg-zinc-900/80`, $> 4.8:1$), and export buttons exceed WCAG AA standards.
+- **R-26 (Interactive Elements)**: Hermetic client-side downloads and responsive category switching with zero dead controls and zero layout jumps.
+- **R-27 (UI States)**: Clear visual feedback for active, hover, focus-visible, and exported states.
+- **R-32 (Keyboard Accessibility)**: Full WAI-ARIA tab navigation with arrow key handling, high-contrast focus rings (`focus-visible:ring-2 focus-visible:ring-cyan-400`), and `aria-live="polite"` announcements.
+- **R-35 (Craftsmanship Verification)**: Clean Next.js Turbopack build, clean ESLint validation, and hermetic Python test verification.
 
 ---
 
@@ -49,6 +55,6 @@
   - `npm run lint`: 0 errors, 0 warnings.
   - `npm run build`: Compiled cleanly (Next.js Turbopack).
 - **Files Changed**:
-  - `web/src/components/BlueprintReader.tsx`
+  - `web/src/components/AnalyticsCharts.tsx`
   - `workflow/stages/02_build/output/build-report.md`
 - **Production Touch Points**: Zero database writes, zero Telegram messages, zero Gemini quota consumed.
