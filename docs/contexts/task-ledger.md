@@ -123,6 +123,7 @@ Elevate `JHunt` from a keyword scraper and Telegram alerter into a production-gr
 - [x] **Task 3.3: Skill Gap UX Polish: Visual ROI Delta & Compact Mobile HUD** (Dynamic ROI reach delta badge and RadialGauge pulse, unlocked blueprint callouts, and compact mobile HUD reflow).
 - [x] **Task 3.4: Code Snippet Clipboard & Blueprint Deep-Linking UX** (Line count metadata, robust clipboard copy with fallback, heading anchor link sharing `#`, hash synchronization, and sticky share button).
 - [x] **Task 3.5: Market Analytics Interactive Category Filter & Data Export** (WAI-ARIA cluster filter tabs, responsive panel isolation/expansion, and client-side CSV/JSON data export).
+- [x] **Task 3.6: OpenGraph Social Metadata, Dynamic Titles & Web Manifest** (Next.js 16 viewport, dynamic title template `%s | JHunt`, OpenGraph article/website cards, Twitter summary cards, `/manifest.webmanifest`, `/robots.txt`, and `/sitemap.xml`).
 
 ---
 

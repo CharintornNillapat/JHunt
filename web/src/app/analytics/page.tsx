@@ -1,8 +1,21 @@
+import type { Metadata } from "next";
 import nextDynamic from "next/dynamic";
 import { getMarketAnalytics, calculateSkillGap } from "@/lib/turso";
 import AnalyticsSkeleton, { SkillGapSkeleton } from "@/components/AnalyticsSkeleton";
 import SpotlightCard from "@/components/SpotlightCard";
 import { Activity, Cpu, Layers, Sparkles } from "lucide-react";
+
+export const metadata: Metadata = {
+  title: "Market Intelligence & Tech Cluster Index",
+  description:
+    "Empirical frequency distributions, compensation benchmarks, and cloud market share extracted from active software engineering job postings in Thailand.",
+  openGraph: {
+    title: "Market Intelligence & Tech Cluster Index | JHunt",
+    description:
+      "Empirical frequency distributions, compensation benchmarks, and cloud market share extracted from active software engineering job postings in Thailand.",
+    url: "/analytics",
+  },
+};
 
 export const revalidate = 3600;
 

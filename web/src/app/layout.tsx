@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import Navbar from "@/components/Navbar";
@@ -13,10 +13,53 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+export const viewport: Viewport = {
+  themeColor: "#08080a",
+  colorScheme: "dark",
+  width: "device-width",
+  initialScale: 1,
+};
+
 export const metadata: Metadata = {
-  title: "JHunt | Market Intelligence & AI Blueprint Hub",
+  metadataBase: new URL(
+    process.env.NEXT_PUBLIC_APP_URL || "https://jhunt.vercel.app"
+  ),
+  title: {
+    default: "JHunt: Thailand Tech Market Intelligence & AI Blueprint Hub",
+    template: "%s | JHunt",
+  },
   description:
-    "Portfolio architecture specifications derived from live Thailand tech demand signals.",
+    "Production portfolio architecture specifications reverse-engineered from live Thailand tech demand signals across JobsDB, Blognone, and JobThai.",
+  keywords: [
+    "Thailand tech jobs",
+    "Bangkok software engineering",
+    "tech stack demand",
+    "system architecture blueprints",
+    "portfolio specs",
+    "salary benchmarks Thailand",
+  ],
+  authors: [{ name: "JHunt Telemetry Engine" }],
+  creator: "JHunt",
+  publisher: "JHunt",
+  robots: {
+    index: true,
+    follow: true,
+  },
+  openGraph: {
+    type: "website",
+    locale: "en_US",
+    url: "/",
+    siteName: "JHunt",
+    title: "JHunt: Thailand Tech Market Intelligence & AI Blueprint Hub",
+    description:
+      "Production portfolio architecture specifications reverse-engineered from live Thailand tech demand signals.",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "JHunt: Thailand Tech Market Intelligence & AI Blueprint Hub",
+    description:
+      "Production portfolio architecture specifications reverse-engineered from live Thailand tech demand signals.",
+  },
 };
 
 export default function RootLayout({

@@ -1,6 +1,19 @@
+import type { Metadata } from "next";
 import dynamic from "next/dynamic";
 import { getAllProjects } from "@/lib/turso";
 import BlueprintCatalog from "@/components/BlueprintCatalog";
+
+export const metadata: Metadata = {
+  title: "Portfolio Architecture Blueprints",
+  description:
+    "Production-grade systems reverse-engineered from active engineering requirements in Thailand. Explore verifiable architecture specifications with concurrency, persistence, and distributed systems solutions.",
+  openGraph: {
+    title: "Portfolio Architecture Blueprints | JHunt",
+    description:
+      "Production-grade systems reverse-engineered from active engineering requirements in Thailand.",
+    url: "/",
+  },
+};
 
 const ThreeCanvas = dynamic(() => import("@/components/ThreeCanvas"), {
   loading: () => (
