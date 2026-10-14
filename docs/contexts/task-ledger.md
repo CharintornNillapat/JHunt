@@ -97,7 +97,7 @@ Elevate `JHunt` from a keyword scraper and Telegram alerter into a production-gr
 ### Remediation Plan (2026-10-12)
 
 #### Phase 0: Immediate Emergency & Data Integrity Fixes (P0)
-- [x] **Task 0.1: ID Continuity Migration & State Compatibility** (code done; Turso SQL pending)
+- [x] **Task 0.1: ID Continuity Migration & State Compatibility** (Turso migration applied on live database; state_manager updated).
 - [x] **Task 0.2: Enforce Turso as Single Source of Truth in CI** (`JHUNT_REQUIRE_TURSO=1`).
 - [x] **Task 0.2.1: Task 0.2 review fixes; keep the Turso URL out of logs**
 - [x] **Task 0.3: Restore CI Log Observability** (`PYTHONUNBUFFERED=1`).
@@ -108,8 +108,14 @@ Elevate `JHunt` from a keyword scraper and Telegram alerter into a production-gr
 - [x] **Task 1.1: Salary Parser Precision & Noise Rejection** (Keyword window + local currency/period).
 - [x] **Task 1.2: Historical Salary Backfill** (Query unparsed jobs, parse with parse_salary, batch-update Turso/SQLite).
 - [x] **Task 1.3: Structural Error Classification** (Stop retrying Pydantic errors on 500/1500).
-- [ ] **Task 1.4: Schema & Index Reconciliation** (Align role index on generated_projects).
-- [ ] **Task 1.5: Blueprint Logic & Exporter Fixes** (Interleaving tests, strip '..').
+- [x] **Task 1.4: Schema & Index Reconciliation** (Align role index on generated_projects).
+- [x] **Task 1.5: Blueprint Logic & Exporter Fixes** (Interleaving tests, strip '..').
+
+#### Phase 2: Analytics Rollup & Web Optimization (P2 / P3)
+- [x] **Task 2.1: Pre-Aggregated Rollup Table** (`skill_stats` populated on pipeline completion).
+- [x] **Task 2.2: Statistically Honest Telemetry** (Enforce `currency = 'THB'`, sample size floor $n \ge 5$, sample badges, 0% floor removed).
+- [x] **Task 2.3: ISR Caching & On-Demand Revalidation** (`export const revalidate = 3600;` on `/` & `/analytics`, `/api/revalidate`, CI step 8).
+- [x] **Task 2.4: Eliminate Duplicate Client Mount Query & API Memoization** (Skip initial mount fetch, 10-min TTL in `turso.ts` and `route.ts`).
 
 ---
 
