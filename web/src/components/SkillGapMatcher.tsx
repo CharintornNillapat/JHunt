@@ -8,6 +8,7 @@ import {
   X,
   TrendingUp,
   Check,
+  CheckCircle2,
   Search,
   ArrowUpRight,
   Layers,
@@ -56,15 +57,24 @@ const STACK_PRESETS: StackPreset[] = [
   },
 ];
 
-function RadialGauge({ percentage }: { percentage: number }) {
+function RadialGauge({
+  percentage,
+  isHighlight,
+}: {
+  percentage: number;
+  isHighlight?: boolean;
+}) {
   const radius = 38;
   const circumference = 2 * Math.PI * radius;
   const strokeDashoffset =
     circumference - (Math.min(100, Math.max(0, percentage)) / 100) * circumference;
 
   return (
-    <div className="relative flex items-center justify-center">
-      <svg className="w-24 h-24 transform -rotate-90" viewBox="0 0 96 96">
+    <div className="relative flex items-center justify-center shrink-0">
+      <svg
+        className="w-16 h-16 sm:w-24 sm:h-24 transform -rotate-90 transition-transform duration-500"
+        viewBox="0 0 96 96"
+      >
         <circle
           cx="48"
           cy="48"
@@ -77,7 +87,12 @@ function RadialGauge({ percentage }: { percentage: number }) {
           cx="48"
           cy="48"
           r={radius}
-          className="text-cyan-400 stroke-current transition-all duration-700 ease-out"
+          className={cn(
+            "stroke-current transition-all duration-700 ease-out",
+            isHighlight
+              ? "text-emerald-400 drop-shadow-[0_0_10px_rgba(52,211,153,0.6)]"
+              : "text-cyan-400"
+          )}
           strokeWidth="7"
           strokeDasharray={circumference}
           strokeDashoffset={strokeDashoffset}
@@ -86,10 +101,10 @@ function RadialGauge({ percentage }: { percentage: number }) {
         />
       </svg>
       <div className="absolute flex flex-col items-center justify-center text-center">
-        <span className="text-2xl font-bold font-mono text-white tracking-tight">
+        <span className="text-lg sm:text-2xl font-bold font-mono text-white tracking-tight">
           {percentage}%
         </span>
-        <span className="text-[9px] font-mono uppercase tracking-wider text-zinc-400">
+        <span className="text-[8px] sm:text-[9px] font-mono uppercase tracking-wider text-zinc-400">
           Reach
         </span>
       </div>
@@ -125,6 +140,20 @@ export default function SkillGapMatcher({ initialData }: SkillGapMatcherProps) {
   const lastFetchedSkillsRef = useRef<string[] | null>(
     initialData?.userSkills ?? null
   );
+  const prevCoverageRef = useRef<number>(initialData?.coverageRate ?? 0);
+  const [delta, setDelta] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (data?.coverageRate !== undefined && data.coverageRate !== prevCoverageRef.current) {
+      const diff = data.coverageRate - prevCoverageRef.current;
+      if (diff !== 0) {
+        setDelta(diff);
+        const timer = setTimeout(() => setDelta(null), 3500);
+        prevCoverageRef.current = data.coverageRate;
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [data?.coverageRate]);
 
   // Compute popular suggestions (from live data or baseline)
   const popularSkills =
@@ -243,12 +272,17 @@ export default function SkillGapMatcher({ initialData }: SkillGapMatcherProps) {
 
   return (
     <SpotlightCard
-      className="p-6 sm:p-8 border border-white/[0.08] bg-zinc-950/70 rounded-2xl relative overflow-hidden backdrop-blur-xl"
+      className="p-4 sm:p-6 lg:p-8 border border-white/[0.08] bg-zinc-950/70 rounded-2xl relative overflow-hidden backdrop-blur-xl"
       spotlightColor="rgba(6, 182, 212, 0.15)"
     >
       {/* Background radial glow accents */}
       <div className="absolute top-0 right-0 -mr-24 -mt-24 w-80 h-80 rounded-full bg-cyan-500/[0.07] blur-3xl pointer-events-none" />
       <div className="absolute bottom-0 left-0 -ml-24 -mb-24 w-80 h-80 rounded-full bg-indigo-500/[0.05] blur-3xl pointer-events-none" />
+
+      {/* Screen Reader Live Region for Metric Updates (antislop R-32) */}
+      <div className="sr-only" aria-live="polite">
+        {`Market coverage updated to ${coverageRate}%${delta ? `, a ${delta}% increase` : ""}`}
+      </div>
 
       {/* Widget Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-6 border-b border-white/[0.06]">
@@ -272,7 +306,7 @@ export default function SkillGapMatcher({ initialData }: SkillGapMatcherProps) {
         {selectedSkills.length > 0 && (
           <button
             onClick={clearAllSkills}
-            className="self-start sm:self-center text-xs font-mono text-zinc-400 hover:text-rose-400 transition-colors px-2.5 py-1 rounded border border-white/[0.06] hover:border-rose-500/30 bg-zinc-900/40"
+            className="self-start sm:self-center text-xs font-mono text-zinc-400 hover:text-rose-400 transition-colors px-3 py-1.5 rounded-lg border border-white/[0.06] hover:border-rose-500/30 bg-zinc-900/40 min-h-[36px] sm:min-h-[32px] flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
           >
             Clear Stack
           </button>
@@ -294,7 +328,7 @@ export default function SkillGapMatcher({ initialData }: SkillGapMatcherProps) {
                   Instant 1-Click Benchmark
                 </span>
               </div>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 sm:gap-2">
                 {STACK_PRESETS.map((preset) => {
                   const isActive = areSkillSetsEqual(selectedSkills, preset.skills);
                   return (
@@ -305,7 +339,7 @@ export default function SkillGapMatcher({ initialData }: SkillGapMatcherProps) {
                       aria-pressed={isActive}
                       title={preset.description}
                       className={cn(
-                        "flex flex-col text-left p-2.5 rounded-lg border transition-all min-h-[44px] justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950",
+                        "flex flex-col text-left p-2 sm:p-2.5 rounded-lg border transition-all min-h-[44px] justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950",
                         isActive
                           ? "bg-cyan-950/90 border-cyan-500/50 text-cyan-200 ring-1 ring-cyan-500/30 shadow-sm"
                           : "bg-zinc-900/70 border-white/[0.08] text-zinc-300 hover:text-white hover:bg-zinc-800/80 hover:border-white/[0.15]"
@@ -407,7 +441,7 @@ export default function SkillGapMatcher({ initialData }: SkillGapMatcherProps) {
                   <button
                     key={skill}
                     onClick={() => (isSelected ? removeSkill(skill) : addSkill(skill))}
-                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-mono transition-all border ${
+                    className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-mono transition-all border min-h-[36px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-950 ${
                       isSelected
                         ? "bg-cyan-950/90 border-cyan-500/50 text-cyan-300 shadow-sm"
                         : "bg-zinc-900/60 border-white/[0.06] text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60 hover:border-white/[0.12]"
@@ -427,7 +461,7 @@ export default function SkillGapMatcher({ initialData }: SkillGapMatcherProps) {
         </div>
 
         {/* Right Column: Live Market Coverage HUD Gauge (5 cols) */}
-        <div className="lg:col-span-5 flex flex-col justify-between bg-zinc-900/40 border border-white/[0.06] rounded-xl p-5 relative">
+        <div className="lg:col-span-5 flex flex-col justify-between bg-zinc-900/40 border border-white/[0.06] rounded-xl p-4 sm:p-5 relative">
           <div className="flex items-center justify-between pb-3 border-b border-white/[0.05]">
             <span className="text-xs font-mono text-zinc-400 uppercase tracking-wider">
               Market Coverage Index
@@ -442,15 +476,26 @@ export default function SkillGapMatcher({ initialData }: SkillGapMatcherProps) {
             </span>
           </div>
 
-          <div className="flex items-center gap-6 py-4">
-            <RadialGauge percentage={coverageRate} />
+          <div className="flex flex-row items-center gap-4 py-3 sm:py-4">
+            <RadialGauge
+              percentage={coverageRate}
+              isHighlight={delta !== null && delta > 0}
+            />
 
-            <div className="space-y-1.5">
-              <div className="text-2xl font-bold font-mono text-white tracking-tight">
-                {matchedJobsCount}{" "}
-                <span className="text-sm font-normal text-zinc-400 font-sans">
-                  / {totalTechJobs} postings
+            <div className="space-y-1.5 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xl sm:text-2xl font-bold font-mono text-white tracking-tight">
+                  {matchedJobsCount}{" "}
+                  <span className="text-xs sm:text-sm font-normal text-zinc-400 font-sans">
+                    / {totalTechJobs} postings
+                  </span>
                 </span>
+                {delta !== null && delta > 0 && (
+                  <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-950/90 border border-emerald-500/50 text-emerald-300 shadow-sm animate-pulse">
+                    <TrendingUp className="h-2.5 w-2.5" />
+                    +{delta}% Reach
+                  </span>
+                )}
               </div>
               <div className={`text-xs font-medium ${fitAssessment.color}`}>
                 {fitAssessment.label}
@@ -526,7 +571,7 @@ export default function SkillGapMatcher({ initialData }: SkillGapMatcherProps) {
 
                   <button
                     onClick={() => addSkill(rec.name)}
-                    className="mt-3 w-full py-1.5 px-2 rounded-lg bg-zinc-800/70 hover:bg-cyan-950 border border-white/[0.08] hover:border-cyan-500/40 text-xs font-mono text-zinc-300 hover:text-cyan-300 transition-all flex items-center justify-center gap-1"
+                    className="mt-3 w-full min-h-[44px] py-1.5 px-2 rounded-lg bg-zinc-800/70 hover:bg-cyan-950 border border-white/[0.08] hover:border-cyan-500/40 text-xs font-mono text-zinc-300 hover:text-cyan-300 transition-all flex items-center justify-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
                   >
                     <Plus className="h-3 w-3" />
                     <span>Simulate adding {rec.name}</span>
@@ -552,7 +597,7 @@ export default function SkillGapMatcher({ initialData }: SkillGapMatcherProps) {
             </div>
             <Link
               href="/"
-              className="text-[11px] font-mono text-cyan-400 hover:text-cyan-300 flex items-center gap-0.5"
+              className="text-[11px] font-mono text-cyan-400 hover:text-cyan-300 flex items-center gap-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 rounded px-1 py-0.5"
             >
               <span>View All</span>
               <ArrowUpRight className="h-3 w-3" />
@@ -561,66 +606,86 @@ export default function SkillGapMatcher({ initialData }: SkillGapMatcherProps) {
 
           {data?.relevantBlueprints && data.relevantBlueprints.length > 0 ? (
             <div className="space-y-3">
-              {data.relevantBlueprints.slice(0, 2).map((bp) => (
-                <Link
-                  key={bp.id}
-                  href={`/blueprints/${bp.id}`}
-                  className="block p-4 rounded-xl bg-zinc-900/60 border border-white/[0.06] hover:border-cyan-500/40 hover:bg-zinc-900/80 transition-all group"
-                >
-                  <div className="flex items-start justify-between gap-3 mb-2">
-                    <div>
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-zinc-800 text-zinc-300 border border-white/[0.06]">
-                          {bp.role}
-                        </span>
-                        <span className="text-[10px] font-mono text-zinc-500">
-                          {bp.difficulty}
-                        </span>
-                      </div>
-                      <h4 className="text-sm font-semibold text-zinc-200 group-hover:text-white transition-colors line-clamp-1">
-                        {bp.title}
-                      </h4>
-                    </div>
-
-                    <div className="text-right shrink-0">
-                      <span
-                        className={`text-xs font-mono font-bold px-2 py-0.5 rounded border ${
-                          bp.matchPercentage >= 50
-                            ? "bg-cyan-950/80 border-cyan-500/40 text-cyan-300"
-                            : "bg-zinc-800/80 border-white/[0.06] text-zinc-400"
-                        }`}
-                      >
-                        {bp.matchPercentage}% Stack Match
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Matched vs Missing Skill Badges */}
-                  <div className="flex flex-wrap gap-1.5 mt-2.5">
-                    {bp.matchedSkills.map((skill) => (
-                      <span
-                        key={skill}
-                        className="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-950/60 border border-cyan-500/40 text-cyan-300"
-                      >
-                        ✓ {skill}
-                      </span>
-                    ))}
-                    {bp.missingSkills.slice(0, 3).map((skill) => (
-                      <span
-                        key={skill}
-                        className="text-[10px] font-mono px-2 py-0.5 rounded bg-zinc-950 border border-white/[0.06] text-zinc-500"
-                      >
-                        + {skill}
-                      </span>
-                    ))}
-                    {bp.missingSkills.length > 3 && (
-                      <span className="text-[10px] font-mono text-zinc-600 px-1 py-0.5">
-                        +{bp.missingSkills.length - 3} more
-                      </span>
+              {data.relevantBlueprints.slice(0, 2).map((bp) => {
+                const isFullyUnlocked = bp.matchPercentage === 100;
+                const isHighMatch = bp.matchPercentage >= 75 && !isFullyUnlocked;
+                return (
+                  <Link
+                    key={bp.id}
+                    href={`/blueprints/${bp.id}`}
+                    className={cn(
+                      "block p-4 rounded-xl border transition-all group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950",
+                      isFullyUnlocked
+                        ? "bg-zinc-900/90 border-emerald-500/40 shadow-[0_0_15px_rgba(16,185,129,0.12)] hover:border-emerald-400/60 hover:bg-zinc-900"
+                        : "bg-zinc-900/60 border-white/[0.06] hover:border-cyan-500/40 hover:bg-zinc-900/80"
                     )}
-                  </div>
-                </Link>
-              ))}
+                  >
+                    <div className="flex items-start justify-between gap-3 mb-2">
+                      <div>
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-zinc-800 text-zinc-300 border border-white/[0.06]">
+                            {bp.role}
+                          </span>
+                          <span className="text-[10px] font-mono text-zinc-500">
+                            {bp.difficulty}
+                          </span>
+                        </div>
+                        <h4 className="text-sm font-semibold text-zinc-200 group-hover:text-white transition-colors line-clamp-1">
+                          {bp.title}
+                        </h4>
+                      </div>
+
+                      <div className="text-right shrink-0">
+                        {isFullyUnlocked ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-mono font-bold px-2.5 py-0.5 rounded-md bg-emerald-950 border border-emerald-500/50 text-emerald-300 shadow-[0_0_12px_rgba(16,185,129,0.25)]">
+                            <CheckCircle2 className="h-3 w-3 text-emerald-400" />
+                            <span>Fully Unlocked</span>
+                          </span>
+                        ) : isHighMatch ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-mono font-semibold px-2 py-0.5 rounded-md bg-cyan-950/90 border border-cyan-500/50 text-cyan-200">
+                            <span>{bp.matchPercentage}% High Match</span>
+                          </span>
+                        ) : (
+                          <span
+                            className={`text-xs font-mono font-bold px-2 py-0.5 rounded border ${
+                              bp.matchPercentage >= 50
+                                ? "bg-cyan-950/80 border-cyan-500/40 text-cyan-300"
+                                : "bg-zinc-800/80 border-white/[0.06] text-zinc-400"
+                            }`}
+                          >
+                            {bp.matchPercentage}% Stack Match
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Matched vs Missing Skill Badges */}
+                    <div className="flex flex-wrap gap-1.5 mt-2.5">
+                      {bp.matchedSkills.map((skill) => (
+                        <span
+                          key={skill}
+                          className="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-950/60 border border-cyan-500/40 text-cyan-300"
+                        >
+                          ✓ {skill}
+                        </span>
+                      ))}
+                      {bp.missingSkills.slice(0, 3).map((skill) => (
+                        <span
+                          key={skill}
+                          className="text-[10px] font-mono px-2 py-0.5 rounded bg-zinc-950 border border-white/[0.06] text-zinc-500"
+                        >
+                          + {skill}
+                        </span>
+                      ))}
+                      {bp.missingSkills.length > 3 && (
+                        <span className="text-[10px] font-mono text-zinc-600 px-1 py-0.5">
+                          +{bp.missingSkills.length - 3} more
+                        </span>
+                      )}
+                    </div>
+                  </Link>
+                );
+              })}
             </div>
           ) : (
             <div className="p-6 rounded-xl bg-zinc-900/30 border border-dashed border-white/[0.06] text-center text-xs font-mono text-zinc-500">
