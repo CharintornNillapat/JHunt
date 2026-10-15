@@ -41,12 +41,15 @@ class JobsDBScraper(BaseScraper):
     MAX_PAGES = 5
     DATE_RANGE_DAYS = 3
     REQUEST_DELAY = 1.0
+    DETAIL_FAILURE_LIMIT = 3  # consecutive detail failures before the per-run breaker trips
 
     def __init__(self, keywords: Optional[List[str]] = None, fetch_details: bool = True):
         super().__init__()
         self.default_keywords = [kw.strip() for kw in (keywords or []) if kw.strip()]
         self.fetch_details = fetch_details
         self.session = self._build_session()
+        self._detail_failures = 0
+        self._detail_breaker_open = False
 
     def _fetch_page(self, keyword: str, page: int) -> Optional[Dict[str, Any]]:
         """Fetches and decodes the JSON body for a given keyword and page number."""
@@ -118,6 +121,13 @@ class JobsDBScraper(BaseScraper):
         cleaned = re.sub(r"\s+", " ", cleaned).strip()
         return cleaned or None
 
+    @staticmethod
+    def _normalize_id(item: Dict[str, Any]) -> Optional[str]:
+        raw_id = str(item.get("id") or "").strip()
+        if not raw_id:
+            return None
+        return raw_id if raw_id.startswith("jobsdb_") else f"jobsdb_{raw_id}"
+
     def _parse_job(
         self,
         item: Dict[str, Any],
@@ -125,10 +135,9 @@ class JobsDBScraper(BaseScraper):
     ) -> Optional[RawJob]:
         """Maps an API record into a normalized RawJob instance."""
         raw_id = str(item.get("id") or "").strip()
-        if not raw_id:
+        job_id = self._normalize_id(item)
+        if not raw_id or not job_id:
             return None
-
-        job_id = raw_id if raw_id.startswith("jobsdb_") else f"jobsdb_{raw_id}"
 
         locations = [
             loc.get("label", "") for loc in (item.get("locations") or [])
@@ -160,10 +169,20 @@ class JobsDBScraper(BaseScraper):
 
         if known_ids and job_id in known_ids:
             description = fallback_desc
-        elif self.fetch_details:
+        elif self.fetch_details and not self._detail_breaker_open:
             time.sleep(self.REQUEST_DELAY)
             detail_desc = self._fetch_detail_description(raw_id)
-            description = detail_desc if detail_desc else fallback_desc
+            if detail_desc:
+                self._detail_failures = 0
+            else:
+                self._detail_failures += 1
+                if self._detail_failures >= self.DETAIL_FAILURE_LIMIT:
+                    self._detail_breaker_open = True
+                    logger.warning(
+                        f"[JobsDB] Detail fetch failed {self._detail_failures} times in a row; "
+                        "using listing teasers for the rest of this run."
+                    )
+            description = detail_desc or fallback_desc
         else:
             description = fallback_desc
 
@@ -198,6 +217,7 @@ class JobsDBScraper(BaseScraper):
     ) -> List[RawJob]:
         """
         Executes search across keywords and returns deduplicated RawJob list.
+        Dedupes by job ID before detail fetch; detail fetch stops for the run after DETAIL_FAILURE_LIMIT consecutive failures.
         """
         search_keywords = keywords if keywords is not None else self.default_keywords
         if not search_keywords:
@@ -205,6 +225,8 @@ class JobsDBScraper(BaseScraper):
 
         jobs: List[RawJob] = []
         seen_ids: set[str] = set()
+        self._detail_failures = 0
+        self._detail_breaker_open = False
 
         for keyword in search_keywords:
             keyword = keyword.strip()
@@ -233,8 +255,12 @@ class JobsDBScraper(BaseScraper):
                     if keyword_count >= limit:
                         break
 
+                    job_id = self._normalize_id(item)
+                    if not job_id or job_id in seen_ids:
+                        continue
+
                     job = self._parse_job(item, known_ids=known_ids)
-                    if not job or job.id in seen_ids:
+                    if not job:
                         continue
 
                     seen_ids.add(job.id)

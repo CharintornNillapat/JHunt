@@ -142,6 +142,7 @@ Elevate `JHunt` from a keyword scraper and Telegram alerter into a production-gr
 
 #### Phase 7: Build & Dependency Hygiene (P7)
 - [x] **Task 7.1: Lockfile Compiled for CI Python 3.11** (`requirements.lock` recompiled with `--python-version 3.11` so sphinx forks to 9.0.4 below 3.12; AGENTS.md compile command updated; lockfile/CI version guard test).
+- [x] **Task 7.2: JobsDB Detail Fetch Circuit Breaker & Per-Run Dedupe** (Breaker trips after 3 consecutive detail failures per `scrape()` run and skips remaining detail requests and sleeps with teaser fallback; job IDs deduped before detail fetch across keywords; fixes CI run 38710734201 budget exhaustion).
 
 ---
 

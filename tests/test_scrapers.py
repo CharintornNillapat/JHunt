@@ -300,6 +300,153 @@ class TestJobsDBScraper(unittest.TestCase):
         self.assertEqual(mock_get.call_count, 1)
         self.assertIn("Python / Django", jobs[0].description)
 
+    @patch("time.sleep")
+    @patch("requests.Session.get")
+    def test_jobsdb_detail_breaker_trips_after_consecutive_failures(self, mock_get, mock_sleep):
+        detail_calls = []
+
+        def side_effect(url, params=None, timeout=None):
+            if "/job/" in url:
+                detail_calls.append(url)
+                resp = MagicMock()
+                resp.raise_for_status.side_effect = requests.exceptions.HTTPError("404 Client Error: Not Found")
+                return resp
+            resp = MagicMock()
+            resp.status_code = 200
+            resp.json.return_value = {
+                "totalCount": 5,
+                "data": [
+                    {
+                        "id": str(100 + i),
+                        "title": f"Dev {100 + i}",
+                        "companyName": f"Company {100 + i}",
+                        "teaser": f"Teaser {100 + i}",
+                    }
+                    for i in range(5)
+                ],
+            }
+            return resp
+
+        mock_get.side_effect = side_effect
+        jobs = self.scraper.scrape(keywords=["python"], known_ids=set())
+
+        self.assertEqual(len(jobs), 5)
+        self.assertEqual(len(detail_calls), 3)
+        self.assertEqual(mock_sleep.call_count, 3)
+        for i, job in enumerate(jobs):
+            self.assertIn(f"Teaser {100 + i}", job.description)
+
+    @patch("time.sleep")
+    @patch("requests.Session.get")
+    def test_jobsdb_detail_breaker_resets_on_success(self, mock_get, mock_sleep):
+        detail_calls = []
+
+        def side_effect(url, params=None, timeout=None):
+            if "/job/" in url:
+                detail_calls.append(url)
+                call_index = len(detail_calls) - 1
+                resp = MagicMock()
+                if call_index == 2:
+                    resp.status_code = 200
+                    resp.json.return_value = {"jobDetail": "<p>Detail body for job 202</p>"}
+                else:
+                    resp.raise_for_status.side_effect = requests.exceptions.HTTPError("404 Client Error: Not Found")
+                return resp
+            resp = MagicMock()
+            resp.status_code = 200
+            resp.json.return_value = {
+                "totalCount": 8,
+                "data": [
+                    {
+                        "id": str(200 + i),
+                        "title": f"Engineer {200 + i}",
+                        "companyName": f"Tech {200 + i}",
+                        "teaser": f"Teaser {200 + i}",
+                    }
+                    for i in range(8)
+                ],
+            }
+            return resp
+
+        mock_get.side_effect = side_effect
+        jobs = self.scraper.scrape(keywords=["backend"], known_ids=set())
+
+        self.assertEqual(len(jobs), 8)
+        self.assertEqual(len(detail_calls), 6)
+        self.assertIn("Detail body for job 202", jobs[2].description)
+        for idx in [0, 1, 3, 4, 5, 6, 7]:
+            self.assertIn(f"Teaser {200 + idx}", jobs[idx].description)
+
+    @patch("time.sleep")
+    @patch("requests.Session.get")
+    def test_jobsdb_duplicate_ids_across_keywords_not_refetched(self, mock_get, mock_sleep):
+        detail_calls = []
+
+        def side_effect(url, params=None, timeout=None):
+            if "/job/" in url:
+                detail_calls.append(url)
+                job_num = url.rsplit("/", 1)[-1]
+                resp = MagicMock()
+                resp.status_code = 200
+                resp.json.return_value = {"jobDetail": f"<p>Detail body for {job_num}</p>"}
+                return resp
+            kw = (params or {}).get("keywords", "")
+            if kw == "python":
+                items = [
+                    {"id": "501", "title": "Py Dev 501", "companyName": "Alpha", "teaser": "Teaser 501"},
+                    {"id": "502", "title": "Py Dev 502", "companyName": "Beta", "teaser": "Teaser 502"},
+                ]
+            else:
+                items = [
+                    {"id": "502", "title": "Data Dev 502", "companyName": "Beta", "teaser": "Teaser 502"},
+                    {"id": "503", "title": "Data Dev 503", "companyName": "Gamma", "teaser": "Teaser 503"},
+                ]
+            resp = MagicMock()
+            resp.status_code = 200
+            resp.json.return_value = {"totalCount": len(items), "data": items}
+            return resp
+
+        mock_get.side_effect = side_effect
+        jobs = self.scraper.scrape(keywords=["python", "data"], known_ids=set())
+
+        called_ids = [u.rsplit("/", 1)[-1] for u in detail_calls]
+        self.assertEqual(called_ids, ["501", "502", "503"])
+        self.assertEqual([j.id for j in jobs], ["jobsdb_501", "jobsdb_502", "jobsdb_503"])
+        self.assertEqual(mock_sleep.call_count, 4)
+
+    @patch("time.sleep")
+    @patch("requests.Session.get")
+    def test_jobsdb_failed_detail_id_not_refetched_under_later_keyword(self, mock_get, mock_sleep):
+        detail_calls = []
+
+        def side_effect(url, params=None, timeout=None):
+            if "/job/" in url:
+                detail_calls.append(url)
+                resp = MagicMock()
+                resp.raise_for_status.side_effect = requests.exceptions.HTTPError("404 Client Error: Not Found")
+                return resp
+            kw = (params or {}).get("keywords", "")
+            if kw == "python":
+                items = [
+                    {"id": "601", "title": "Py 601", "companyName": "Alpha", "teaser": "Teaser 601"},
+                ]
+            else:
+                items = [
+                    {"id": "601", "title": "Py 601", "companyName": "Alpha", "teaser": "Teaser 601"},
+                    {"id": "602", "title": "Data 602", "companyName": "Beta", "teaser": "Teaser 602"},
+                ]
+            resp = MagicMock()
+            resp.status_code = 200
+            resp.json.return_value = {"totalCount": len(items), "data": items}
+            return resp
+
+        mock_get.side_effect = side_effect
+        jobs = self.scraper.scrape(keywords=["python", "data"], known_ids=set())
+
+        called_ids = [u.rsplit("/", 1)[-1] for u in detail_calls]
+        self.assertEqual(called_ids, ["601", "602"])
+        self.assertEqual([j.id for j in jobs], ["jobsdb_601", "jobsdb_602"])
+
 
 class TestBlognoneScraper(unittest.TestCase):
     def setUp(self):
