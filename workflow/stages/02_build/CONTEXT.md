@@ -49,7 +49,7 @@ Your responsibility is to implement the exact specification designed in Stage 1,
 Before declaring the build complete, execute:
 1. Python unit tests: `uv run python -m unittest discover tests` (all tests must pass hermetically).
 2. If `web/` was modified: `cd web; npm run lint ; npm run build` (zero errors or warnings).
-3. Git hygiene: `git diff --stat` must show only planned files plus the bookkeeping files above.
+3. Git hygiene: `git diff --stat` must show only planned files plus the bookkeeping files above. `git status --porcelain --untracked-files=all` must show no new untracked file (a `??` line) other than planned files, the bookkeeping files, and the task's own spec and review files. Any other new file is blocking.
 4. Em dash scan: verify zero em dashes across all touched files.
 
 ## Output Deliverable

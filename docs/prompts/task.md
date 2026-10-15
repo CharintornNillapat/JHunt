@@ -39,7 +39,7 @@ Make the smallest change that makes the tests pass. Edit only files listed in th
 
 - `uv run python -m unittest discover tests`: all pass.
 - If `web/` changed: `cd web; npm run lint; npm run build`.
-- `git diff --stat`: every file appears in the plan.
+- `git diff --stat` and `git status --porcelain --untracked-files=all`: every changed or new file appears in the plan. A new untracked file (a `??` line) that is not in the plan is blocking. The plan or spec file itself and the bookkeeping files (`docs/contexts/task-ledger.md`, `workflow/stages/02_build/output/*`) do not count.
 - Re-read the AGENTS.md invariants and confirm each one the diff touches still holds.
 
 ## Step 6. Report

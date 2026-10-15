@@ -32,9 +32,10 @@ Execute the following verification steps yourself:
    - `cd web; npm run lint ; npm run build`
    - Confirm zero lint errors/warnings and successful compilation.
 3. **Scope & Plan Compliance**:
-   - Check `git diff --stat`. Verify every modified file was authorized in the specification.
-   - Any unannounced modifications are blocking.
+   - Check `git diff --stat` and `git status --porcelain --untracked-files=all`. Verify every modified or new file was authorized in the specification.
+   - Any unannounced modification is blocking. Any new untracked file (a `??` line) that the spec does not list is blocking.
    - **Bookkeeping files**: `docs/contexts/task-ledger.md` and `workflow/stages/02_build/output/*` are always allowed and never count as a scope violation, even when the spec does not list them.
+   - **Stage outputs**: the task's own spec (`workflow/stages/01_spec/output/task-<id>-spec.md`) and review files (`workflow/stages/03_review/output/task-<id>-review.md`) are workflow records, not changes. They never count as a scope violation.
 4. **Root Cause & Test Validity**:
    - Verify that new tests genuinely fail on the previous code and prove the fix.
    - Verify that the code addresses the root cause, not merely a superficial test assertion.
@@ -48,7 +49,7 @@ Execute the following verification steps yourself:
    - Status code-based error classification (never `str(e)` substrings).
    - Rate limit throttles respected (`time.sleep` patched in tests).
    - Gemini extraction stays batched: no new request per job.
-   - No Turso write that the spec says a human runs.
+   - The Builder ran no Turso write that the spec leaves to a human.
 6. **Design & Copywriting Protocol**:
    - Confirm zero em dashes (`\u2014`) across all touched files (Rule R-02).
    - For web UI: inspect responsive layout, accessible contrast, typography hierarchy, and adherence to `antislop-ui`, `emil-design-eng`, `impeccable`, and `taste-skill`.

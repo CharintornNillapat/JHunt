@@ -145,6 +145,7 @@ Elevate `JHunt` from a keyword scraper and Telegram alerter into a production-gr
 - [x] **Task 7.2: JobsDB Detail Fetch Circuit Breaker & Per-Run Dedupe** (Breaker trips after 3 consecutive detail failures per `scrape()` run and skips remaining detail requests and sleeps with teaser fallback; job IDs deduped before detail fetch across keywords; fixes CI run 38710734201 budget exhaustion).
 - [x] **Task 7.3: Workflow Rule Hygiene** (Verdicts unified to APPROVED / CHANGES REQUESTED; herdr spec location and SPEC DONE stop point; bookkeeping and legacy review file rules; Builder execution strategy; AGENTS.md map and ledger date corrected; em dashes removed).
 - [x] **Task 7.3.1: Review Format Merge & Ignored-Target Check** (Duplicate ledger line removed from 02_build CONTEXT; 03_review CONTEXT gains Step 0 `git check-ignore -v` check; review.md Output replaced by a pointer so the 03_review schema is the only report format, with typical misses, production SQL check, non-blocking list, rule candidates and paste-ready fix block moved in).
+- [x] **Task 7.3.2: Scope Check Catches New Files** (Scope checks in 03_review CONTEXT, 02_build CONTEXT and task.md Step 5 also run `git status --porcelain --untracked-files=all`; unlisted new untracked files are blocking, except bookkeeping files and the task's own spec and review files; Gate 5 human-run Turso write line reworded).
 
 ---
 
