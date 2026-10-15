@@ -144,6 +144,7 @@ Elevate `JHunt` from a keyword scraper and Telegram alerter into a production-gr
 - [x] **Task 7.1: Lockfile Compiled for CI Python 3.11** (`requirements.lock` recompiled with `--python-version 3.11` so sphinx forks to 9.0.4 below 3.12; AGENTS.md compile command updated; lockfile/CI version guard test).
 - [x] **Task 7.2: JobsDB Detail Fetch Circuit Breaker & Per-Run Dedupe** (Breaker trips after 3 consecutive detail failures per `scrape()` run and skips remaining detail requests and sleeps with teaser fallback; job IDs deduped before detail fetch across keywords; fixes CI run 38710734201 budget exhaustion).
 - [x] **Task 7.3: Workflow Rule Hygiene** (Verdicts unified to APPROVED / CHANGES REQUESTED; herdr spec location and SPEC DONE stop point; bookkeeping and legacy review file rules; Builder execution strategy; AGENTS.md map and ledger date corrected; em dashes removed).
+- [x] **Task 7.3.1: Review Format Merge & Ignored-Target Check** (Duplicate ledger line removed from 02_build CONTEXT; 03_review CONTEXT gains Step 0 `git check-ignore -v` check; review.md Output replaced by a pointer so the 03_review schema is the only report format, with typical misses, production SQL check, non-blocking list, rule candidates and paste-ready fix block moved in).
 
 ---
 

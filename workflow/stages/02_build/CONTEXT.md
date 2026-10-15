@@ -8,7 +8,6 @@ Your responsibility is to implement the exact specification designed in Stage 1,
 - **Allowed writes**:
   - Source code files explicitly listed in the task specification (`src/`, `web/`, `tests/`, etc.).
   - Output report: `workflow/stages/02_build/output/build-report.md`.
-  - Task ledger updates: `docs/contexts/task-ledger.md`.
   - **Bookkeeping files**: `docs/contexts/task-ledger.md` and `workflow/stages/02_build/output/*` are always allowed and never count as a scope violation, even when the spec does not list them.
 - **PROHIBITED**:
   - Do NOT touch files outside the specification scope (no opportunistic refactoring).

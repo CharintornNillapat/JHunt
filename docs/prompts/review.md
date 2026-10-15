@@ -33,24 +33,5 @@ Do not edit any file. The writer fixes; you judge.
 
 ## Output
 
-```
-Task: <id>
-Verdict: APPROVED | CHANGES REQUESTED
-Tests: <N> passed (run by reviewer)
-
-Blocking:
-1. <file>:<line> - <problem> - <required fix>
-
-Non-blocking:
-- <file>:<line> - <suggestion>
-
-Rule candidates:
-- <one-line AGENTS.md rule that would have prevented a blocking item, if any>
-```
-
-On CHANGES REQUESTED, end with this block so it can be pasted into Antigravity unchanged:
-
-```
-Review of task <id>: changes requested. Fix only the blocking items below, then repeat steps 5 and 6 of docs/prompts/task.md.
-<blocking items, copied verbatim>
-```
+Use the report schema in `workflow/stages/03_review/CONTEXT.md` (`## Review Deliverable`). It is the only review format. The verdict is `APPROVED` or `CHANGES REQUESTED`.
+Under herdr orchestration, write the report to `workflow/stages/03_review/output/task-<id>-review.md`. Otherwise, give it in your reply; "Do not edit any file" above still holds.
