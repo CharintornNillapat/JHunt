@@ -30,8 +30,8 @@ These touch production or spend quota. Never run them unless I approve in the cu
 # Setup (deterministic install from lockfile)
 uv venv; .venv\Scripts\activate; uv pip install -r requirements.lock
 
-# Updating dependencies (recompile lockfile from requirements.txt)
-uv pip compile requirements.txt --universal -o requirements.lock
+# Updating dependencies (recompile lockfile from requirements.txt; 3.11 = CI Python, keep in sync with scraper_cron.yml)
+uv pip compile requirements.txt --universal --python-version 3.11 -o requirements.lock
 
 # Python tests: hermetic, no network. Must pass before any task counts as done.
 uv run python -m unittest discover tests

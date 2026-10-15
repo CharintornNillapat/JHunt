@@ -140,6 +140,9 @@ Elevate `JHunt` from a keyword scraper and Telegram alerter into a production-gr
 - [x] **Task 6.2: Blueprint Catalog Interactive Filtering & Search UX Polish** (Real-time telemetry matching counter, category counts with tabular numerals, cyan glow search focus ring, active tag pills, min-h container layout shift protection, and tactile empty state recovery).
 - [x] **Task 6.3: Market Analytics & Skill Gap Matcher Telemetry Polish** (Flattened card hierarchy, font-mono tabular numerals across salary and market reach metrics, restrained RadialGauge stroke, tabular compensation benchmark breakdown, tactile category tabs, and Obsidian loading skeleton).
 
+#### Phase 7: Build & Dependency Hygiene (P7)
+- [x] **Task 7.1: Lockfile Compiled for CI Python 3.11** (`requirements.lock` recompiled with `--python-version 3.11` so sphinx forks to 9.0.4 below 3.12; AGENTS.md compile command updated; lockfile/CI version guard test).
+
 ---
 
 ## 3. Operational Guardrails Log
