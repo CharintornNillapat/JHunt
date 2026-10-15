@@ -1,11 +1,13 @@
 # Task protocol
 
+> **Under herdr orchestration:** the spec at `workflow/stages/01_spec/output/task-<id>-spec.md` replaces `docs/plans/` (Step 2), and the human approval gate is the orchestrator's pause-after-spec option, not the word "approved".
+
 Use this for any task from the remediation plan, or any change to `src/`, `web/` or CI.
 Input: a task ID (for example `0.4`) or a one-line description.
 
 ## Step 1. Understand (read only, no edits)
 
-1. Read the task in `2026-10-12-remediation-plan.md` and the matching finding in the 2026-10-12 audit. The audit has the evidence and file:line references.
+1. Read the task in `docs/audits/2026-10-12-remediation-plan.md` and the matching finding in the 2026-10-12 audit. The audit has the evidence and file:line references.
 2. Open every file the task names, plus its tests. If a named path does not exist, grep for the symbol and use the real path.
 3. Write down:
    - current behavior, with file:line

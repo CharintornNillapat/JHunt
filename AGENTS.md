@@ -1,4 +1,4 @@
-# AGENTS.md — JHunt
+# AGENTS.md: JHunt
 
 Shared instructions for every coding agent on this repo: Antigravity CLI (`agy`) and Claude Code.
 `CLAUDE.md` imports this file, so edit rules **here only**.
@@ -78,7 +78,7 @@ web/src/app/api/skill-gap/      public API route
 .github/workflows/scraper_cron.yml   daily 01:00 UTC
 docs/contexts/task-ledger.md    task status
 docs/audits/                    audits (evidence with file:line)
-2026-10-12-remediation-plan.md  current task list (Phase 0 → 1 → 2)
+docs/audits/2026-10-12-remediation-plan.md   original remediation plan (Phases 0 to 2); live status is docs/contexts/task-ledger.md
 ```
 
 Pipeline order: `run_scrapers` → `filter_new_jobs` → `filter_relevant_jobs` → `filter_by_seniority` →

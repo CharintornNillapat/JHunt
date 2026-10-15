@@ -7,7 +7,7 @@ Input: a task ID (for example `0.4`).
 ## Read
 
 1. `AGENTS.md`.
-2. The plan: `docs/plans/*-task-<id>.md`.
+2. The plan: `docs/plans/*-task-<id>.md`. Under herdr orchestration, read `workflow/stages/01_spec/output/task-<id>-spec.md` instead.
 3. The change: `git diff` (uncommitted) or `git diff main...HEAD`, plus the full text of every changed function.
 4. The task and its finding in the 2026-10-12 remediation plan and audit.
 
@@ -35,22 +35,22 @@ Do not edit any file. The writer fixes; you judge.
 
 ```
 Task: <id>
-Verdict: PASS | FAIL
+Verdict: APPROVED | CHANGES REQUESTED
 Tests: <N> passed (run by reviewer)
 
 Blocking:
-1. <file>:<line> — <problem> — <required fix>
+1. <file>:<line> - <problem> - <required fix>
 
 Non-blocking:
-- <file>:<line> — <suggestion>
+- <file>:<line> - <suggestion>
 
 Rule candidates:
 - <one-line AGENTS.md rule that would have prevented a blocking item, if any>
 ```
 
-On FAIL, end with this block so it can be pasted into Antigravity unchanged:
+On CHANGES REQUESTED, end with this block so it can be pasted into Antigravity unchanged:
 
 ```
-Review of task <id> failed. Fix only the blocking items below, then repeat steps 5 and 6 of docs/prompts/task.md.
+Review of task <id>: changes requested. Fix only the blocking items below, then repeat steps 5 and 6 of docs/prompts/task.md.
 <blocking items, copied verbatim>
 ```
